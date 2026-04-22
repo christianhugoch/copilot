@@ -121,13 +121,15 @@ ${saltcorn_description}
 
 ${existing_tables_list(existing_tables)}
 
-Now use the ${databaseDesignTool.function.name} tool to generate the database schema for this software application
+Design a complete database schema that covers ALL requirements listed above. Every distinct entity in the application must have its own table. Do not produce a minimal or partial schema — all tables needed to implement every requirement must be included in this single call. Do not leave any tables for a later step.
+
+Now use the ${databaseDesignTool.function.name} tool to generate the complete database schema for this software application
 `,
     {
       tools: [databaseDesignTool],
       ...tool_choice(databaseDesignTool.function.name),
       systemPrompt:
-        "You are a database designer. The user wants to build an application, and you must analyse their application description and the requirements and come up with a good database design",
+        "You are a database designer. The user wants to build an application, and you must analyse their application description and requirements and design a complete schema. Every entity needed by any requirement must have its own table. Never produce a partial schema.",
     },
   );
 

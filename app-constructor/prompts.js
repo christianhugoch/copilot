@@ -23,9 +23,9 @@ Views can embed views, for instance Show can embed another row through a Key fie
 some views are defined by an underlying view. For instance, the Feed view repeats an underlying view 
 for multiple tables. New viewtemplates are provided by plugin modules.
 
-* Triggers: Triggers connect elementary actions (provided by plugin modules) to either a button in the 
-user interface, or a periodic (hourly, daily etc) or table (for instance insert on specifc table) event. 
-The elementary action each has a number of configuration fields that must be filled in after connecting 
+* Triggers: Triggers connect elementary actions (provided by plugin modules) to either a button in the
+user interface, or a periodic (hourly, daily etc) or table (for instance insert on specifc table) event.
+The elementary action each has a number of configuration fields that must be filled in after connecting
 the action to an event, table or button.
 
 * Page: A page has static content but can also embed views for synamic content. Pages can be either 

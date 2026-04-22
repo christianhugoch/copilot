@@ -651,6 +651,13 @@ class GenerateWorkflowSkill {
         const canCreate =
           analysis.blocking.length === 0 &&
           preparedPayload.workflow_steps.length > 0;
+        if (this.yoloMode && canCreate) {
+          await this.userActions.apply_copilot_workflow(preparedPayload);
+          return {
+            stop: true,
+            add_response: `Workflow ${preparedPayload.workflow_name || "(unnamed)"} created.`,
+          };
+        }
         return {
           stop: true,
           add_response: `${issuesHtml}${previewHtml}`,

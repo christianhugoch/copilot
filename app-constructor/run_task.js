@@ -66,6 +66,8 @@ const runTask = async (md_id, req) => {
         { skill_type: "Database design", yoloMode: true },
         { skill_type: "Generate Workflow", yoloMode: true },
         { skill_type: "Generate View", yoloMode: true },
+        { skill_type: "Install Plugin", yoloMode: true },
+        { skill_type: "AppConstructor Context" },
       ],
     },
   });
@@ -80,6 +82,7 @@ Visual style: ${spec.body.visual_style}
 Your task now is:
 ${md.body.description}`;
 
+  await md.update({ body: { ...md.body, status: "Running" } });
   const actionres = await agent_action.runWithoutRow({
     row: { prompt },
     req,

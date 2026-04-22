@@ -89,15 +89,22 @@ const makeTaskList = async (req) => {
         [
           { label: "Name", key: (m) => m.body.name },
           { label: "Description", key: (m) => m.body.description },
-          { label: "Depends on", key: (m) => m.body.depends_on.join(", ") },
+          { label: "Depends on", key: (m) => (m.body.depends_on || []).join(", ") },
           { label: "Priority", key: (m) => m.body.priority },
           { label: "Status", key: (m) => m.body.status || "To do" },
           {
             label: "Run",
             key: (r) =>
-              r.body.run_id
+              r.body.status === "Running"
+                ? span(
+                    {
+                      class: "task-spinner",
+                      "data-task-id": r.id,
+                    },
+                    i({ class: "fas fa-spinner fa-spin text-warning" }),
+                  )
+                : r.body.run_id
                 ? a(
-                    //{ href: `javascript:view_run(${r.body.run_id})` },
                     {
                       target: "_blank",
                       href: `/view/Saltcorn%20Agent%20copilot?run_id=${r.body.run_id}`,
@@ -128,10 +135,32 @@ const makeTaskList = async (req) => {
           "To do": rs.filter(
             (t) => !t.body.status || t.body.status === "To do",
           ),
+          Running: rs.filter((t) => t.body.status === "Running"),
           Done: rs.filter((t) => t.body.status === "Done"),
         },
         { grouped: true },
       ),
+      rs.some((t) => t.body.status === "Running")
+        ? script(
+            domReady(`
+(function() {
+  function pollTasks() {
+    var spinners = document.querySelectorAll('.task-spinner[data-task-id]');
+    if (!spinners.length) return;
+    var ids = Array.from(spinners).map(function(el) { return el.getAttribute('data-task-id'); });
+    view_post(${JSON.stringify(viewname)}, 'task_status', { ids: ids }, function(resp) {
+      if (resp && resp.any_done) {
+        location.reload();
+      } else {
+        setTimeout(pollTasks, 3000);
+      }
+    });
+  }
+  setTimeout(pollTasks, 3000);
+})();
+`),
+          )
+        : "",
       button(
         {
           class: "btn btn-outline-danger mb-4",
@@ -199,6 +228,11 @@ should be designed optimally for this application.
 
 The plan should focus on building views, triggers (including workflows) and pages.
 
+Important view planning rules:
+* The Edit viewtemplate handles both creating new rows (called without an id) and editing existing rows (called with an id). Do NOT plan separate tasks or views for "create" and "edit" — a single Edit view covers both. When writing task descriptions, never ask for separate create and edit views for the same table.
+* A List view that includes an edit link (viewlink column pointing to an Edit view) depends on that Edit view already existing. Always plan the Edit view task before the List view task, and set the List view task's depends_on to include the Edit view task name.
+* In general, if a view embeds or links to another view, the linked view must be created first and listed as a dependency.
+
 Your plan should not include any clarification or questions to the product owner. The 
 information you have been given so far is all that is available. Every step in the plan 
 should be immediately implementable in Saltcorn. You are writing the steps in the plan
@@ -240,10 +274,24 @@ const del_task = async (table_id, viewname, config, body, { req, res }) => {
   return { json: { reload_page: true } };
 };
 const run_task = async (table_id, viewname, config, body, { req, res }) => {
-  if (body.id) await runTask(body.id, req);
-  else await runNextTask(true);
-
+  const reqUser = req?.user;
+  setImmediate(async () => {
+    try {
+      if (body.id) await runTask(body.id, { user: reqUser, __: req.__ });
+      else await runNextTask(true);
+    } catch (e) {
+      console.error("run_task background error", e);
+    }
+  });
   return { json: { reload_page: true } };
+};
+
+const task_status = async (table_id, viewname, config, body, { req, res }) => {
+  const ids = body.ids || [];
+  const tasks = await MetaData.find({ type: "CopilotConstructMgr", name: "task" });
+  const relevant = tasks.filter((t) => ids.includes(String(t.id)));
+  const any_done = relevant.some((t) => t.body.status !== "Running");
+  return { json: { any_done } };
 };
 
 const start = async (table_id, viewname, config, body, { req, res }) => {
@@ -297,6 +345,7 @@ const task_routes = {
   del_task,
   del_all_tasks,
   run_task,
+  task_status,
   start,
   stop,
 };

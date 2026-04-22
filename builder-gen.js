@@ -5,14 +5,27 @@ const View = require("@saltcorn/data/models/view");
 const { edit_build_in_actions } = require("@saltcorn/data/viewable_fields");
 const { buildBuilderSchema } = require("./builder-schema");
 const { getLlmConfigurationSafe, canUseResponseFormat } = require("./common");
+const { build_schema_data } = require("@saltcorn/data/plugin-helper");
+const { RelationsFinder } = require("@saltcorn/common-code");
+const { RelationType } = require("@saltcorn/common-code");
 
 const ACTION_SIZES = ["btn-sm", "btn-lg"];
 const MODE_GUIDANCE = {
-  edit: "Layout is a form for editing a single row. Include required inputs with edit fieldviews, group related inputs, and finish with a Save action.",
-  show: "Layout displays one record read-only. Use show fieldviews, blank headings, and optional follow-up actions.",
+  edit:
+    `Layout is a form for editing a single row. Include all fields mentioned in the request; ownership fields like user_id that are set automatically can be omitted. ` +
+    `Use edit fieldviews, group related inputs, and finish with a Save action. ` +
+    `Every field MUST be preceded by a label. Use a blank segment with the field's label text immediately above each field inside an above array, like: ` +
+    `{"above": [{"type":"blank","contents":"Field Label","class":""}, {"type":"field","field_name":"...","fieldview":"edit"}]}. ` +
+    `Alternatively wrap groups of fields in a card with a descriptive title.`,
+  show:
+    `Layout displays one record read-only. Use show fieldviews. ` +
+    `Every field MUST be preceded by a label using a blank segment or grouped in a card with a descriptive title.`,
   list: "Layout represents a single row in a list. Highlight key fields, keep actions compact, and support filtering if requested.",
   listcolumns:
-    "Layout defines list columns for a list view. Use a list_columns wrapper with besides entries containing list_column segments. Each list_column should contain a field or action and include a header label when appropriate.",
+    `Layout defines list columns for a list view. Use a list_columns wrapper with besides entries containing list_column segments. ` +
+    `Each list_column has a header_label for the column heading — do NOT add any blank or label segment inside a list_column. ` +
+    `Typically each list_column contains a single field, action, or view_link. ` +
+    `For string/text fields use fieldview "as_text" or "show" by default; only use "show_with_html" when the task explicitly requires rendering HTML content.`,
   filter:
     "Layout lets users define filters. Provide appropriate filter inputs plus an action to run or reset filters.",
   page: "Layout builds a general app page. Combine hero text, cards, containers, and call-to-action buttons.",
@@ -451,6 +464,13 @@ const pickFieldview = (field, mode, requestedFieldview = null) => {
       if (match) return match;
     }
   } else if (mode === "edit" || mode === "filter") {
+    // For date fields with day_only attribute, prefer edit_day
+    if (field?.attributes?.day_only) {
+      const dayMatch = availableViews.find((fv) =>
+        String(fv).toLowerCase() === "edit_day",
+      );
+      if (dayMatch) return dayMatch;
+    }
     // For edit mode, prefer edit-capable fieldviews from available views
     const editPreferences = ["edit", "input", "select", "textarea"];
     for (const pref of editPreferences) {
@@ -626,17 +646,38 @@ const normalizeSegment = (segment, ctx) => {
         state: clone.state || {},
         class: clone.class || "",
       };
-    case "view_link":
+    case "view_link": {
       if (!ctx.viewNames.length) return null;
+      const resolvedView = ctx.viewNames.includes(clone.view)
+        ? clone.view
+        : ctx.viewNames[0];
+      let relation = clone.relation;
+      if (!relation && ctx.table && ctx.schemaData) {
+        try {
+          const finder = new RelationsFinder(
+            ctx.schemaData.tables,
+            ctx.schemaData.views,
+            6,
+          );
+          const relations = finder.findRelations(ctx.table.name, resolvedView, []);
+          if (relations.length > 0) {
+            const picked = pickRelation(relations);
+            if (picked) relation = picked.relationString;
+          }
+        } catch (e) {
+          console.error("view_link relation lookup failed:", e.message);
+        }
+      }
       return {
         ...clone,
-        view: ctx.viewNames.includes(clone.view)
-          ? clone.view
-          : ctx.viewNames[0],
+        view: resolvedView,
         view_label: clone.view_label || clone.view,
         link_style: clone.link_style || "",
         class: clone.class || "",
+        isFormula: clone.isFormula || {},
+        ...(relation ? { relation } : {}),
       };
+    }
     case "field": {
       if (!ctx.fields.length) return null;
       const fieldMeta = ctx.fieldMap[clone.field_name] || ctx.fields[0];
@@ -654,6 +695,19 @@ const normalizeSegment = (segment, ctx) => {
         configuration: clone.configuration || {},
         class: clone.class || "",
       };
+    }
+    case "list_columns": {
+      const besides = ensureArray(clone.besides).map((child) =>
+        child == null ? null : normalizeSegment(child, ctx),
+      );
+      if (!besides.some(Boolean)) return null;
+      return { ...clone, besides, list_columns: true };
+    }
+    case "list_column": {
+      const contents = normalizeChild(clone.contents, ctx);
+      return contents
+        ? { ...clone, contents, header_label: clone.header_label || "" }
+        : null;
     }
     case "action": {
       if (!ctx.actions.length) return null;
@@ -768,6 +822,7 @@ const buildPromptText = (userPrompt, ctx, schema) => {
     'CRITICAL: You must return ONLY a single valid JSON object. Do not include introductory text, explanations, markdown formatting (like ```json), or any pseudo-markup. The output must strictly follow this shape: {"layout": <layout-object>}.',
     'The "layout" object MUST conform entirely to the provided JSON Schema. Do not invent properties, types, or structure not defined in the schema.',
   ];
+  parts.push(ctx.modeGuidance);
   parts.push(
     "When a card or container background is requested, set bgType explicitly (None, Color, Image, or Gradient). For Color use bgColor, for Image use bgFileId plus imageLocation (Top, Card, Body) and optionally imageSize (cover, contain, repeat using cover as default) when location is Card or Body, and for Gradient use gradStartColor, gradEndColor, and numeric gradDirection. Use hex color codes when specifying colors.",
   );
@@ -994,6 +1049,20 @@ const buildBracketObject = (node) => {
   return obj;
 };
 
+const pickRelation = (relations) => {
+  let own = null, parent = null, child = null;
+  for (const r of relations) {
+    if (r.type === RelationType.OWN) own = r;
+    else if (r.type === RelationType.PARENT_SHOW) parent = r;
+    else if (
+      r.type === RelationType.CHILD_LIST ||
+      r.type === RelationType.ONE_TO_ONE_SHOW
+    )
+      child = r;
+  }
+  return own || parent || child || relations[0];
+};
+
 const buildContext = async (mode, tableName) => {
   const normalizedMode = (mode || "show").toLowerCase();
   const ctx = {
@@ -1004,15 +1073,25 @@ const buildContext = async (mode, tableName) => {
     fieldMap: {},
     actions: [],
     viewNames: [],
+    viewTableMap: {},
+    schemaData: null,
   };
 
   // Global actions and views are useful even when no table is specified (page builder)
   const stateActions = Object.keys(getState().actions || {});
   try {
-    const allViews = await View.find();
-    ctx.viewNames = allViews.map((v) => v.name).filter(Boolean);
+    const schemaData = await build_schema_data();
+    ctx.schemaData = schemaData;
+    ctx.viewNames = schemaData.views.map((v) => v.name).filter(Boolean);
+    for (const v of schemaData.views) {
+      if (v.name && v.table_id) {
+        const vt = Table.findOne({ id: v.table_id });
+        if (vt) ctx.viewTableMap[v.name] = vt.name;
+      }
+    }
   } catch (err) {
     ctx.viewNames = [];
+    ctx.viewTableMap = {};
   }
 
   if (!tableName) {
@@ -1066,6 +1145,7 @@ const buildContext = async (mode, tableName) => {
       is_pk_name: !!isPkName,
       default_fieldview: defaultFieldview,
       fieldviews: fieldviews.length ? fieldviews : ["show"],
+      attributes: field.attributes || {},
     };
   });
 

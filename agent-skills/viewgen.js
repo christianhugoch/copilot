@@ -15,6 +15,21 @@ const {
 } = require("@saltcorn/markup/tags");
 const builderGen = require("../builder-gen");
 
+const collectLayoutFieldNames = (segment, out = new Set()) => {
+  if (!segment || typeof segment !== "object") return out;
+  if (Array.isArray(segment)) {
+    segment.forEach((s) => collectLayoutFieldNames(s, out));
+    return out;
+  }
+  if (segment.type === "field" && segment.field_name) out.add(segment.field_name);
+  if (segment.above) collectLayoutFieldNames(segment.above, out);
+  if (segment.besides) collectLayoutFieldNames(segment.besides, out);
+  if (segment.contents) collectLayoutFieldNames(segment.contents, out);
+  if (Array.isArray(segment.tabs))
+    segment.tabs.forEach((t) => collectLayoutFieldNames(t?.contents, out));
+  return out;
+};
+
 const findFilterFieldSegment = (segment) => {
   if (!segment || typeof segment !== "object") return null;
   if (segment.type === "field") return segment;
@@ -95,8 +110,12 @@ class GenerateViewSkill {
   }
 
   async systemPrompt() {
-    return `If the user asks to generate a view, use the generate_view tool to enter 
-a view generation mode. The tool call only requires high-level details to start this sequence.`;
+    return (
+      `If the user asks to generate a view, use the generate_view tool to enter ` +
+      `a view generation mode. The tool call only requires high-level details to start this sequence.\n` +
+      `The Edit viewtemplate handles both creating new rows (called without an id) and editing existing rows (called with an id). ` +
+      `Do NOT create separate views for create and edit — use a single Edit view for both.`
+    );
   }
 
   get userActions() {
@@ -208,9 +227,18 @@ a view generation mode. The tool call only requires high-level details to start 
         const builderMode = builderModeByPattern[viewpattern];
         if (builderMode) {
           const promptFromChat = Array.isArray(chat)
-            ? [...chat]
-                .reverse()
-                .find((item) => item?.role === "user" && item?.content)?.content
+            ? (() => {
+                const msg = [...chat]
+                  .reverse()
+                  .find((item) => item?.role === "user" && item?.content);
+                const c = msg?.content;
+                if (typeof c === "string") return c;
+                if (Array.isArray(c)) {
+                  const textPart = c.find((p) => p?.type === "text" || typeof p === "string");
+                  return textPart?.text || (typeof textPart === "string" ? textPart : "");
+                }
+                return "";
+              })()
             : "";
           const layoutPrompt = promptFromChat || tool_call.input.name || "";
           wfctx.layout = await builderGen.run(
@@ -225,6 +253,20 @@ a view generation mode. The tool call only requires high-level details to start 
               table_id: table.id,
             });
             if (baseCfg?.columns) wfctx.columns = baseCfg.columns;
+          }
+          if (viewpattern === "Edit" && table) {
+            const layoutFieldNames = collectLayoutFieldNames(wfctx.layout);
+            const fields = table.fields || [];
+            const fixed = {};
+            for (const f of fields) {
+              if (f.primary_key || f.calculated) continue;
+              if (layoutFieldNames.has(f.name)) continue;
+              if (f.required && f.type === "Key" && f.reftable_name === "users") {
+                fixed[`preset_${f.name}`] = "LoggedIn";
+                fixed[`_block_${f.name}`] = true;
+              }
+            }
+            if (Object.keys(fixed).length > 0) wfctx.fixed = fixed;
           }
           if (viewpattern === "Filter") {
             const filterFieldSegment = findFilterFieldSegment(wfctx.layout);
