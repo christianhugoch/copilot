@@ -46,7 +46,7 @@ const makeTaskList = async (req) => {
       type: "CopilotConstructMgr",
       name: "task",
     },
-    { orderBy: "written_at" },
+    { orderBy: "written_at" }
   );
   const settings = await MetaData.findOne({
     type: "CopilotConstructMgr",
@@ -62,7 +62,7 @@ const makeTaskList = async (req) => {
             onclick: `view_post("${viewname}", "stop", {})`,
           },
           i({ class: "fas fa-stop me-1" }),
-          "Stop running",
+          "Stop running"
         )
       : button(
           {
@@ -70,7 +70,7 @@ const makeTaskList = async (req) => {
             onclick: `view_post("${viewname}", "start", {})`,
           },
           i({ class: "fas fa-play me-1" }),
-          "Start running now",
+          "Start running now"
         ),
     button(
       {
@@ -78,8 +78,8 @@ const makeTaskList = async (req) => {
         onclick: `press_store_button(this);view_post("${viewname}", "run_task", {})`,
       },
       i({ class: "fas fa-play me-1" }),
-      "Run next task",
-    ),
+      "Run next task"
+    )
   );
   if (rs.length) {
     return div(
@@ -89,7 +89,10 @@ const makeTaskList = async (req) => {
         [
           { label: "Name", key: (m) => m.body.name },
           { label: "Description", key: (m) => m.body.description },
-          { label: "Depends on", key: (m) => (m.body.depends_on || []).join(", ") },
+          {
+            label: "Depends on",
+            key: (m) => (m.body.depends_on || []).join(", "),
+          },
           { label: "Priority", key: (m) => m.body.priority },
           { label: "Status", key: (m) => m.body.status || "To do" },
           {
@@ -101,23 +104,39 @@ const makeTaskList = async (req) => {
                       class: "task-spinner",
                       "data-task-id": r.id,
                     },
-                    i({ class: "fas fa-spinner fa-spin text-warning" }),
+                    i({ class: "fas fa-spinner fa-spin text-warning" })
                   )
-                : r.body.run_id
-                ? a(
-                    {
-                      target: "_blank",
-                      href: `/view/Saltcorn%20Agent%20copilot?run_id=${r.body.run_id}`,
-                    },
-                    i({ class: "fas fa-external-link-alt" }),
-                  )
+                : r.body.status === "Done"
+                ? r.body.run_id
+                  ? a(
+                      {
+                        target: "_blank",
+                        href: `/view/Saltcorn%20Agent%20copilot?run_id=${r.body.run_id}`,
+                      },
+                      i({ class: "fas fa-external-link-alt" })
+                    )
+                  : ""
                 : button(
                     {
                       class: "btn btn-outline-success btn-sm",
                       onclick: `press_store_button(this);view_post("${viewname}", "run_task", {id:${r.id}})`,
                     },
-                    i({ class: "fas fa-play" }),
+                    i({ class: "fas fa-play" })
                   ),
+          },
+          {
+            label: "",
+            key: (r) =>
+              r.body.status === "To do" || !r.body.status
+                ? button(
+                    {
+                      class: "btn btn-outline-secondary btn-sm",
+                      title: "Mark as done without running",
+                      onclick: `view_post("${viewname}", "mark_done_task", {id:${r.id}})`,
+                    },
+                    i({ class: "fas fa-check" })
+                  )
+                : "",
           },
           {
             label: "Delete",
@@ -127,18 +146,18 @@ const makeTaskList = async (req) => {
                   class: "btn btn-outline-danger btn-sm",
                   onclick: `view_post("${viewname}", "del_task", {id:${r.id}})`,
                 },
-                i({ class: "fas fa-trash-alt" }),
+                i({ class: "fas fa-trash-alt" })
               ),
           },
         ],
         {
           "To do": rs.filter(
-            (t) => !t.body.status || t.body.status === "To do",
+            (t) => !t.body.status || t.body.status === "To do"
           ),
           Running: rs.filter((t) => t.body.status === "Running"),
           Done: rs.filter((t) => t.body.status === "Done"),
         },
-        { grouped: true },
+        { grouped: true }
       ),
       rs.some((t) => t.body.status === "Running")
         ? script(
@@ -148,7 +167,9 @@ const makeTaskList = async (req) => {
     var spinners = document.querySelectorAll('.task-spinner[data-task-id]');
     if (!spinners.length) return;
     var ids = Array.from(spinners).map(function(el) { return el.getAttribute('data-task-id'); });
-    view_post(${JSON.stringify(viewname)}, 'task_status', { ids: ids }, function(resp) {
+    view_post(${JSON.stringify(
+      viewname
+    )}, 'task_status', { ids: ids }, function(resp) {
       if (resp && resp.any_done) {
         location.reload();
       } else {
@@ -158,7 +179,7 @@ const makeTaskList = async (req) => {
   }
   setTimeout(pollTasks, 3000);
 })();
-`),
+`)
           )
         : "",
       button(
@@ -166,8 +187,8 @@ const makeTaskList = async (req) => {
           class: "btn btn-outline-danger mb-4",
           onclick: `view_post("${viewname}", "del_all_tasks")`,
         },
-        "Delete all",
-      ),
+        "Delete all"
+      )
     );
   } else {
     return div(
@@ -178,8 +199,8 @@ const makeTaskList = async (req) => {
           class: "btn btn-primary",
           onclick: `press_store_button(this);view_post("${viewname}", "gen_tasks")`,
         },
-        "Plan tasks",
-      ),
+        "Plan tasks"
+      )
     );
   }
 };
@@ -229,9 +250,19 @@ should be designed optimally for this application.
 The plan should focus on building views, triggers (including workflows) and pages.
 
 Important view planning rules:
-* The Edit viewtemplate handles both creating new rows (called without an id) and editing existing rows (called with an id). Do NOT plan separate tasks or views for "create" and "edit" — a single Edit view covers both. When writing task descriptions, never ask for separate create and edit views for the same table.
+* Do NOT plan separate tasks for "create" and "edit" on the same table. In Saltcorn, a single Edit view handles both (no id = create, id present = edit). Plan one task covering both, and write task descriptions that say "create and edit" rather than treating them as two separate items.
+* When a table has foreign key fields referencing the users table, the task description must explicitly state for each one whether it is an ownership field (automatically set from the logged-in user, omit from the form) or a selector field (the user picks a value, include a selector in the form). Example: "user_id records the owner and is set automatically; shared_with_user_id must have a user selector."
+* For FK fields that represent a parent context (e.g. trip_id on packing_items), always include the field as a normal selector in the Edit view form. Do NOT say to omit it. Saltcorn automatically pre-fills the selector from the URL query parameter when the view is opened from a parent context, and the user can select it manually when the view is used standalone.
 * A List view that includes an edit link (viewlink column pointing to an Edit view) depends on that Edit view already existing. Always plan the Edit view task before the List view task, and set the List view task's depends_on to include the Edit view task name.
+* If a List view includes a viewlink to show record details (a Show view), the Show view must be created as a separate task before the List view task, and the List view task must depend on it. A Show view is a distinct viewtemplate — do NOT use an Edit view or a page as a substitute for it. The Show view and Edit view for the same table are independent — neither depends on the other; they can be planned in any order or in parallel.
 * In general, if a view embeds or links to another view, the linked view must be created first and listed as a dependency.
+
+* For every task that creates a view, include the exact view name in the task description. View names must be lowercase, snake_case, unique across all tasks in the plan (no two tasks may produce a view with the same name), and descriptive enough to identify the table and purpose — for example 'packing_items_edit' rather than just 'edit'.
+
+Important schema/table rules:
+* The database schema is already fully designed and implemented before task planning begins. ALL tables and fields needed by the application already exist. Do NOT plan any tasks that create tables, add fields, modify fields, or change the schema in any way. If you find yourself writing a task whose output is a table or a field, delete it — that work is already done.
+* Ownership behaviour (auto-setting a FK-to-users field from the logged-in user) is configured in the Edit view, not in the database. Do not create tasks for it at the schema level.
+* Do NOT plan tasks to add uniqueness constraints or validation to existing fields — those are already in the schema.
 
 Your plan should not include any clarification or questions to the product owner. The 
 information you have been given so far is all that is available. Every step in the plan 
@@ -249,7 +280,7 @@ Now use the plan_tasks tool to make a plan of tasks for building software applic
       ...tool_choice("plan_tasks"),
       systemPrompt:
         "You are a project manager. The user wants to build an application, and you must analyse their application description",
-    },
+    }
   );
 
   const tc = answer.getToolCalls()[0];
@@ -288,7 +319,10 @@ const run_task = async (table_id, viewname, config, body, { req, res }) => {
 
 const task_status = async (table_id, viewname, config, body, { req, res }) => {
   const ids = body.ids || [];
-  const tasks = await MetaData.find({ type: "CopilotConstructMgr", name: "task" });
+  const tasks = await MetaData.find({
+    type: "CopilotConstructMgr",
+    name: "task",
+  });
   const relevant = tasks.filter((t) => ids.includes(String(t.id)));
   const any_done = relevant.some((t) => t.body.status !== "Running");
   return { json: { any_done } };
@@ -325,12 +359,25 @@ const stop = async (table_id, viewname, config, body, { req, res }) => {
   return { json: { reload_page: true } };
 };
 
+const mark_done_task = async (
+  table_id,
+  viewname,
+  config,
+  body,
+  { req, res }
+) => {
+  const r = await MetaData.findOne({ id: body.id });
+  if (!r) throw new Error("Task not found");
+  await r.update({ body: { ...r.body, status: "Done" } });
+  return { json: { reload_page: true } };
+};
+
 const del_all_tasks = async (
   table_id,
   viewname,
   config,
   body,
-  { req, res },
+  { req, res }
 ) => {
   const rs = await MetaData.find({
     type: "CopilotConstructMgr",
@@ -344,6 +391,7 @@ const task_routes = {
   gen_tasks,
   del_task,
   del_all_tasks,
+  mark_done_task,
   run_task,
   task_status,
   start,

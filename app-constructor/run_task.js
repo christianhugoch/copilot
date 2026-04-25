@@ -79,6 +79,8 @@ Core features: ${spec.body.core_features}
 Out of scope: ${spec.body.out_of_scope}
 Visual style: ${spec.body.visual_style}
 
+Important: The database schema is already fully implemented. Do NOT use generate_tables or modify any tables or fields — all tables and fields already exist.
+
 Your task now is:
 ${md.body.description}`;
 

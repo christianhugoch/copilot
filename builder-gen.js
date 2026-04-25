@@ -10,25 +10,96 @@ const { RelationsFinder } = require("@saltcorn/common-code");
 const { RelationType } = require("@saltcorn/common-code");
 
 const ACTION_SIZES = ["btn-sm", "btn-lg"];
+
+// ── Edit-mode guidance blocks ─────────────────────────────────────────────────
+
+const EDIT_FIELD_INCLUSION = `\
+Layout is a form for editing a single row. \
+Include ALL non-primary-key, non-calculated fields from the table as inputs — \
+not just fields mentioned in the task description. \
+Never include calculated fields (aggregations, derived values) in an edit form — they are read-only. \
+The only fields that may be omitted are FK fields to the users table that are explicitly \
+designated as ownership fields (set automatically from the logged-in user). \
+All other foreign key fields — including parent-context keys like trip_id — MUST appear as \
+selector inputs; Saltcorn auto-fills them from the URL state when opened in context.`;
+
+const EDIT_FIELDVIEW_SELECTION = `\
+For date fields always prefer fieldview "flatpickr" when available — it provides the best user experience \
+and works for both regular dates and day-only dates. \
+Only use fieldview "edit_day" as a fallback when the field has day_only=true and flatpickr is not installed. \
+For String fields that have an options attribute (a comma-separated list of fixed choices), \
+use fieldview "select" — this renders a dropdown with those options. \
+Do not use "select_by_code" for fields with fixed options.`;
+
+const EDIT_LAYOUT_STRUCTURE = `\
+Every field MUST be preceded by a label. \
+Use a blank segment with the field's label text immediately above each field inside an above array, like: \
+{"above": [{"type":"blank","contents":"Field Label","class":""}, {"type":"field","field_name":"...","fieldview":"edit"}]}. \
+Alternatively wrap groups of fields in a card with a descriptive title.`;
+
+const EDIT_ACTIONS = `\
+Use edit fieldviews, group related inputs, and finish with a row of actions: \
+a Save button (action_name "Save", style "btn btn-primary") and \
+a Cancel button (action_name "GoBack", style "btn btn-outline-secondary").`;
+
+// ── Show-mode guidance blocks ─────────────────────────────────────────────────
+
+const SHOW_PURPOSE = `\
+Layout displays one record read-only. \
+Use show fieldviews only (e.g. "show", "as_text", "showDay").`;
+
+const SHOW_NO_EDIT_FIELDVIEWS = `\
+A show layout is read-only and must never use edit fieldviews \
+(textarea, edit, input, select) — those are for form inputs, not display.`;
+
+const SHOW_LABELS = `\
+Every field MUST be preceded by a label using a blank segment or \
+grouped in a card with a descriptive title.`;
+
+// ── List-columns guidance blocks ──────────────────────────────────────────────
+
+const LISTCOLUMNS_STRUCTURE = `\
+Layout defines list columns for a list view. \
+Use a list_columns wrapper with besides entries containing list_column segments. \
+Each list_column has a header_label for the column heading — \
+do NOT add any blank or label segment inside a list_column. \
+Typically each list_column contains a single field, action, or view_link.`;
+
+const LISTCOLUMNS_FIELDVIEWS = `\
+Include all meaningful fields as columns, including foreign key fields. \
+For a foreign key field use fieldview "show" so the related record's label is displayed rather than a raw ID. \
+For string/text fields use fieldview "as_text" or "show" by default; \
+only use "show_with_html" when the task explicitly requires rendering HTML content.`;
+
+const LISTCOLUMNS_VIEW_LINK = `\
+A view_link that opens the detail of a row MUST point to a Show-type view (viewtemplate "Show"). \
+Only include such a view_link if a Show view for this table is listed in the available views.`;
+
+// ── Composed MODE_GUIDANCE ────────────────────────────────────────────────────
+
 const MODE_GUIDANCE = {
-  edit:
-    `Layout is a form for editing a single row. Include all fields mentioned in the request; ownership fields like user_id that are set automatically can be omitted. ` +
-    `Use edit fieldviews, group related inputs, and finish with a Save action. ` +
-    `Every field MUST be preceded by a label. Use a blank segment with the field's label text immediately above each field inside an above array, like: ` +
-    `{"above": [{"type":"blank","contents":"Field Label","class":""}, {"type":"field","field_name":"...","fieldview":"edit"}]}. ` +
-    `Alternatively wrap groups of fields in a card with a descriptive title.`,
-  show:
-    `Layout displays one record read-only. Use show fieldviews. ` +
-    `Every field MUST be preceded by a label using a blank segment or grouped in a card with a descriptive title.`,
+  edit: [
+    EDIT_FIELD_INCLUSION,
+    EDIT_ACTIONS,
+    EDIT_FIELDVIEW_SELECTION,
+    EDIT_LAYOUT_STRUCTURE,
+  ].join(" "),
+
+  show: [SHOW_PURPOSE, SHOW_NO_EDIT_FIELDVIEWS, SHOW_LABELS].join(" "),
+
   list: "Layout represents a single row in a list. Highlight key fields, keep actions compact, and support filtering if requested.",
-  listcolumns:
-    `Layout defines list columns for a list view. Use a list_columns wrapper with besides entries containing list_column segments. ` +
-    `Each list_column has a header_label for the column heading — do NOT add any blank or label segment inside a list_column. ` +
-    `Typically each list_column contains a single field, action, or view_link. ` +
-    `For string/text fields use fieldview "as_text" or "show" by default; only use "show_with_html" when the task explicitly requires rendering HTML content.`,
+
+  listcolumns: [
+    LISTCOLUMNS_STRUCTURE,
+    LISTCOLUMNS_FIELDVIEWS,
+    LISTCOLUMNS_VIEW_LINK,
+  ].join(" "),
+
   filter:
     "Layout lets users define filters. Provide appropriate filter inputs plus an action to run or reset filters.",
+
   page: "Layout builds a general app page. Combine hero text, cards, containers, and call-to-action buttons.",
+
   default:
     "Use Saltcorn layout primitives (above, besides, container, card, tabs, blank, field, action, view_link, view). Do not return HTML snippets.",
 };
@@ -285,7 +356,7 @@ const countOptionalParams = (schema) => {
     if (props && typeof props === "object") {
       const required = Array.isArray(node.required) ? node.required : [];
       const optional = Object.keys(props).filter(
-        (key) => !required.includes(key),
+        (key) => !required.includes(key)
       );
       count += optional.length;
       Object.values(props).forEach(walk);
@@ -330,15 +401,15 @@ const trimOptionalProperties = (schema, maxOptional) => {
     if (node.items) findOptional(node.items, [...path, "items"]);
     if (node.anyOf)
       node.anyOf.forEach((item, i) =>
-        findOptional(item, [...path, "anyOf", i]),
+        findOptional(item, [...path, "anyOf", i])
       );
     if (node.oneOf)
       node.oneOf.forEach((item, i) =>
-        findOptional(item, [...path, "oneOf", i]),
+        findOptional(item, [...path, "oneOf", i])
       );
     if (node.allOf)
       node.allOf.forEach((item, i) =>
-        findOptional(item, [...path, "allOf", i]),
+        findOptional(item, [...path, "allOf", i])
       );
   };
 
@@ -419,29 +490,60 @@ const pickFieldview = (field, mode, requestedFieldview = null) => {
     return mode === "edit" || mode === "filter" ? "edit" : "show";
   }
 
-  // Helper to validate and return a fieldview only if it exists
+  // Helper to validate and return a fieldview only if it exists (exact match only)
   const validateAndReturn = (candidate) => {
     if (!candidate) return null;
     const lower = String(candidate).toLowerCase();
-    // Exact match
-    const exact = availableViews.find(
-      (fv) => String(fv).toLowerCase() === lower,
+    return (
+      availableViews.find((fv) => String(fv).toLowerCase() === lower) || null
     );
-    if (exact) return exact;
-    // Fuzzy match (contains)
-    const fuzzy = availableViews.find((fv) =>
-      String(fv).toLowerCase().includes(lower),
-    );
-    if (fuzzy) return fuzzy;
-    return null;
   };
 
+  // Edit-only fieldviews must never be used in show/list modes
+  const EDIT_ONLY_FIELDVIEWS = new Set(["textarea", "edit", "input", "select"]);
+  const isShowMode =
+    mode === "show" || mode === "list" || mode === "listcolumns";
+
+  // For date fields in edit mode: flatpickr is always preferred (handles all date types).
+  // Only fall back to edit_day when day_only=true and flatpickr is not installed.
+  const fieldTypeLower = String(field?.type || "").toLowerCase();
+  const isDateField =
+    (mode === "edit" || mode === "filter") &&
+    (fieldTypeLower === "date" || fieldTypeLower.includes("date"));
+  if (isDateField) {
+    const flatpickrMatch = availableViews.find(
+      (fv) => String(fv).toLowerCase() === "flatpickr"
+    );
+    if (flatpickrMatch) return flatpickrMatch;
+    if (field?.attributes?.day_only) {
+      const dayMatch = availableViews.find(
+        (fv) => String(fv).toLowerCase() === "edit_day"
+      );
+      if (dayMatch) return dayMatch;
+    }
+  }
+
+  // Fields with fixed options (options attribute) always use plain select, never select_by_code
+  if ((mode === "edit" || mode === "filter") && field?.attributes?.options) {
+    const selectMatch = availableViews.find(
+      (fv) => String(fv).toLowerCase() === "select"
+    );
+    if (selectMatch) return selectMatch;
+  }
+
   // If a specific fieldview was requested by the user, try to honor it
-  // but ONLY if it actually exists in available views
+  // but ONLY if it actually exists in available views and is appropriate for the mode
   if (requestedFieldview) {
-    const validated = validateAndReturn(requestedFieldview);
-    if (validated) return validated;
-    // Requested fieldview not available for this field - fall through to defaults
+    if (
+      isShowMode &&
+      EDIT_ONLY_FIELDVIEWS.has(String(requestedFieldview).toLowerCase())
+    ) {
+      // Fall through to show-mode defaults — don't use edit fieldviews in show context
+    } else {
+      const validated = validateAndReturn(requestedFieldview);
+      if (validated) return validated;
+      // Requested fieldview not available for this field - fall through to defaults
+    }
   }
 
   // Get the field's configured default fieldview
@@ -458,24 +560,17 @@ const pickFieldview = (field, mode, requestedFieldview = null) => {
     // For show mode, prefer simple text-based views, but only from available views
     const showPreferences = ["as_text", "show", "as_string", "text", "showas"];
     for (const pref of showPreferences) {
-      const match = availableViews.find((fv) =>
-        String(fv).toLowerCase().includes(pref),
+      const match = availableViews.find(
+        (fv) => String(fv).toLowerCase() === pref
       );
       if (match) return match;
     }
   } else if (mode === "edit" || mode === "filter") {
-    // For date fields with day_only attribute, prefer edit_day
-    if (field?.attributes?.day_only) {
-      const dayMatch = availableViews.find((fv) =>
-        String(fv).toLowerCase() === "edit_day",
-      );
-      if (dayMatch) return dayMatch;
-    }
-    // For edit mode, prefer edit-capable fieldviews from available views
+    // For edit mode, prefer edit-capable fieldviews from available views (exact match)
     const editPreferences = ["edit", "input", "select", "textarea"];
     for (const pref of editPreferences) {
-      const match = availableViews.find((fv) =>
-        String(fv).toLowerCase().includes(pref),
+      const match = availableViews.find(
+        (fv) => String(fv).toLowerCase() === pref
       );
       if (match) return match;
     }
@@ -568,7 +663,7 @@ const normalizeSegment = (segment, ctx) => {
   }
   if (!clone.type && clone.besides) {
     const besides = ensureArray(clone.besides).map((child) =>
-      child == null ? null : normalizeSegment(child, ctx),
+      child == null ? null : normalizeSegment(child, ctx)
     );
     if (!besides.some((child) => child)) return null;
     return {
@@ -577,8 +672,38 @@ const normalizeSegment = (segment, ctx) => {
       widths: normalizeWidths(clone.widths, besides.length),
     };
   }
+  // Handle {columns: {besides: [...], widths: [...]}} wrapper the LLM sometimes emits
+  if (!clone.type && clone.columns?.besides) {
+    const inner = clone.columns;
+    const besides = ensureArray(inner.besides).map((child) =>
+      child == null ? null : normalizeSegment(child, ctx)
+    );
+    if (!besides.some(Boolean)) return null;
+    return {
+      besides,
+      widths: normalizeWidths(inner.widths, besides.length),
+    };
+  }
 
   switch (clone.type) {
+    case "columns":
+    case "row":
+    case "grid": {
+      // LLM uses these as a besides wrapper with widths
+      if (clone.besides) {
+        const besides = ensureArray(clone.besides).map((child) =>
+          child == null ? null : normalizeSegment(child, ctx)
+        );
+        if (!besides.some(Boolean)) return null;
+        return {
+          besides,
+          widths: normalizeWidths(clone.widths, besides.length),
+        };
+      }
+      // fall through to container-like handling if no besides
+      const contents = normalizeChild(clone.contents, ctx);
+      return contents ? { ...clone, contents } : null;
+    }
     case "container": {
       const contents = normalizeChild(clone.contents, ctx);
       return contents
@@ -657,9 +782,13 @@ const normalizeSegment = (segment, ctx) => {
           const finder = new RelationsFinder(
             ctx.schemaData.tables,
             ctx.schemaData.views,
-            6,
+            6
           );
-          const relations = finder.findRelations(ctx.table.name, resolvedView, []);
+          const relations = finder.findRelations(
+            ctx.table.name,
+            resolvedView,
+            []
+          );
           if (relations.length > 0) {
             const picked = pickRelation(relations);
             if (picked) relation = picked.relationString;
@@ -668,13 +797,22 @@ const normalizeSegment = (segment, ctx) => {
           console.error("view_link relation lookup failed:", e.message);
         }
       }
+      // Convert {{ expr }} template syntax to isFormula.label: true with JS expression
+      let viewLabel = clone.view_label || clone.view;
+      let isFormula = clone.isFormula || {};
+      const tmplMatch =
+        typeof viewLabel === "string" && viewLabel.match(/^\{\{\s*(.+?)\s*\}\}$/);
+      if (tmplMatch) {
+        viewLabel = tmplMatch[1];
+        isFormula = { ...isFormula, label: true };
+      }
       return {
         ...clone,
         view: resolvedView,
-        view_label: clone.view_label || clone.view,
+        view_label: viewLabel,
         link_style: clone.link_style || "",
         class: clone.class || "",
-        isFormula: clone.isFormula || {},
+        isFormula,
         ...(relation ? { relation } : {}),
       };
     }
@@ -686,7 +824,7 @@ const normalizeSegment = (segment, ctx) => {
       const validFieldview = pickFieldview(
         fieldMeta,
         ctx.mode,
-        clone.fieldview,
+        clone.fieldview
       );
       return {
         ...clone,
@@ -698,7 +836,7 @@ const normalizeSegment = (segment, ctx) => {
     }
     case "list_columns": {
       const besides = ensureArray(clone.besides).map((child) =>
-        child == null ? null : normalizeSegment(child, ctx),
+        child == null ? null : normalizeSegment(child, ctx)
       );
       if (!besides.some(Boolean)) return null;
       return { ...clone, besides, list_columns: true };
@@ -760,7 +898,7 @@ const collectSegments = (segment, out = []) => {
   if (segment.contents) collectSegments(segment.contents, out);
   if (segment.tabs) {
     ensureArray(segment.tabs).forEach((tab) =>
-      collectSegments(tab.contents, out),
+      collectSegments(tab.contents, out)
     );
   }
   return out;
@@ -816,6 +954,24 @@ const normalizeLayoutCandidate = (candidate, ctx) => {
   return sanitizeNoHtmlSegments(layout);
 };
 
+const buildFieldMetadata = (fields) => {
+  if (!fields || !fields.length) return null;
+  const lines = fields
+    .filter((f) => !f.primary_key)
+    .map((f) => {
+      const attrs = Object.entries(f.attributes || {})
+        .filter(
+          ([, v]) => v !== null && v !== undefined && v !== "" && v !== false
+        )
+        .map(([k, v]) => `${k}=${JSON.stringify(v)}`)
+        .join(", ");
+      return `  ${f.name} (${f.type}${f.calculated ? ", calculated" : ""}${
+        attrs ? ` — attrs: ${attrs}` : ""
+      })`;
+    });
+  return `Table fields available for this layout:\n${lines.join("\n")}`;
+};
+
 const buildPromptText = (userPrompt, ctx, schema) => {
   const parts = [
     `You are an expert Saltcorn layout builder assistant. Your task is to generate a layout for mode "${ctx.mode}" that precisely fulfills the user's request.`,
@@ -823,14 +979,18 @@ const buildPromptText = (userPrompt, ctx, schema) => {
     'The "layout" object MUST conform entirely to the provided JSON Schema. Do not invent properties, types, or structure not defined in the schema.',
   ];
   parts.push(ctx.modeGuidance);
+  const fieldMeta = buildFieldMetadata(ctx.fields);
+  if (fieldMeta) parts.push(fieldMeta);
   parts.push(
-    "When a card or container background is requested, set bgType explicitly (None, Color, Image, or Gradient). For Color use bgColor, for Image use bgFileId plus imageLocation (Top, Card, Body) and optionally imageSize (cover, contain, repeat using cover as default) when location is Card or Body, and for Gradient use gradStartColor, gradEndColor, and numeric gradDirection. Use hex color codes when specifying colors.",
+    "When a card or container background is requested, set bgType explicitly (None, Color, Image, or Gradient). For Color use bgColor, for Image use bgFileId plus imageLocation (Top, Card, Body) and optionally imageSize (cover, contain, repeat using cover as default) when location is Card or Body, and for Gradient use gradStartColor, gradEndColor, and numeric gradDirection. Use hex color codes when specifying colors."
   );
   parts.push(
-    `Here is the strict Saltcorn layout JSON schema you MUST follow to construct the layout. Do not deviate from these definitions:\n${JSON.stringify(schema)}`,
+    `Here is the strict Saltcorn layout JSON schema you MUST follow to construct the layout. Do not deviate from these definitions:\n${JSON.stringify(
+      schema
+    )}`
   );
   parts.push(
-    `Based on the schema above, process the following user request and generate the layout JSON. Reminder: ONLY output valid JSON starting with { and ending with }, no markdown fences.\nUser request:\n"${userPrompt}"`,
+    `Based on the schema above, process the following user request and generate the layout JSON. Reminder: ONLY output valid JSON starting with { and ending with }, no markdown fences.\nUser request:\n"${userPrompt}"`
   );
   return parts.join("\n\n");
 };
@@ -1050,7 +1210,9 @@ const buildBracketObject = (node) => {
 };
 
 const pickRelation = (relations) => {
-  let own = null, parent = null, child = null;
+  let own = null,
+    parent = null,
+    child = null;
   for (const r of relations) {
     if (r.type === RelationType.OWN) own = r;
     else if (r.type === RelationType.PARENT_SHOW) parent = r;
@@ -1100,7 +1262,7 @@ const buildContext = async (mode, tableName) => {
     }).filter((tr) => tr.name && !tr.table_id);
 
     ctx.actions = Array.from(
-      new Set([...stateActions, ...triggers.map((tr) => tr.name)]),
+      new Set([...stateActions, ...triggers.map((tr) => tr.name)])
     ).filter(Boolean);
     return ctx;
   }
@@ -1120,7 +1282,13 @@ const buildContext = async (mode, tableName) => {
   }
   if (rawFields?.then) rawFields = await rawFields;
   const fields = (rawFields || []).map((field) => {
-    const fieldviews = Object.keys(field.type?.fieldviews || {});
+    let fieldviews = Object.keys(field.type?.fieldviews || {});
+    // FK fields have type "Key" (a string) so field.type?.fieldviews is empty;
+    // ensure select and show are always available for them
+    const typeName = field.type?.name || field.type || "";
+    if (!fieldviews.length && String(typeName).startsWith("Key")) {
+      fieldviews = ["select", "show"];
+    }
     const isPkName =
       table.pk_name &&
       typeof field.name === "string" &&
@@ -1166,7 +1334,7 @@ const buildContext = async (mode, tableName) => {
       ? edit_build_in_actions || []
       : ["Delete", "GoBack"];
   const actions = Array.from(
-    new Set([...builtIns, ...stateActions, ...triggers.map((tr) => tr.name)]),
+    new Set([...builtIns, ...stateActions, ...triggers.map((tr) => tr.name)])
   ).filter(Boolean);
 
   ctx.table = table;
@@ -1268,7 +1436,7 @@ module.exports = {
         }
         if (simplified && schemaHasRef(simplified)) {
           console.warn(
-            "Builder response schema still contains $ref; skipping response_format",
+            "Builder response schema still contains $ref; skipping response_format"
           );
         } else if (simplified) {
           responseFormat = {

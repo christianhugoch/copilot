@@ -21,7 +21,8 @@ const collectLayoutFieldNames = (segment, out = new Set()) => {
     segment.forEach((s) => collectLayoutFieldNames(s, out));
     return out;
   }
-  if (segment.type === "field" && segment.field_name) out.add(segment.field_name);
+  if (segment.type === "field" && segment.field_name)
+    out.add(segment.field_name);
   if (segment.above) collectLayoutFieldNames(segment.above, out);
   if (segment.besides) collectLayoutFieldNames(segment.besides, out);
   if (segment.contents) collectLayoutFieldNames(segment.contents, out);
@@ -113,8 +114,7 @@ class GenerateViewSkill {
     return (
       `If the user asks to generate a view, use the generate_view tool to enter ` +
       `a view generation mode. The tool call only requires high-level details to start this sequence.\n` +
-      `The Edit viewtemplate handles both creating new rows (called without an id) and editing existing rows (called with an id). ` +
-      `Do NOT create separate views for create and edit — use a single Edit view for both.`
+      `The Edit viewtemplate serves both create (no id in state) and edit (id in state) — one view covers both modes.`
     );
   }
 
@@ -157,7 +157,7 @@ class GenerateViewSkill {
     const enabled_vt_names = all_vt_names.filter(
       (vtnm) =>
         vts[vtnm].enable_copilot_viewgen ||
-        vts[vtnm].copilot_generate_view_prompt,
+        vts[vtnm].copilot_generate_view_prompt
     );
     if (!enabled_vt_names.includes("Show")) enabled_vt_names.push("Show");
     if (!enabled_vt_names.includes("Edit")) enabled_vt_names.push("Edit");
@@ -165,7 +165,7 @@ class GenerateViewSkill {
     if (!enabled_vt_names.includes("Filter")) enabled_vt_names.push("Filter");
     //const roles = await User.get_roles();
     const tableless = enabled_vt_names.filter(
-      (vtnm) => vts[vtnm].tableless === true,
+      (vtnm) => vts[vtnm].tableless === true
     );
     const roles = state.roles;
     const parameters = {
@@ -177,7 +177,9 @@ class GenerateViewSkill {
           type: "string",
         },
         viewpattern: {
-          description: `The type of view to generate. Some of the view descriptions: ${enabled_vt_names.map((vtnm) => `${vtnm}: ${vts[vtnm].description}.`).join(" ")}`,
+          description: `The type of view to generate. Some of the view descriptions: ${enabled_vt_names
+            .map((vtnm) => `${vtnm}: ${vts[vtnm].description}.`)
+            .join(" ")}`,
           type: "string",
           enum: enabled_vt_names,
         },
@@ -226,18 +228,31 @@ class GenerateViewSkill {
         };
         const builderMode = builderModeByPattern[viewpattern];
         if (builderMode) {
+          const extractText = (c) => {
+            if (typeof c === "string") return c;
+            if (Array.isArray(c)) {
+              const textPart = c.find(
+                (p) => p?.type === "text" || typeof p === "string"
+              );
+              return (
+                textPart?.text || (typeof textPart === "string" ? textPart : "")
+              );
+            }
+            return "";
+          };
+          const isToolResultMessage = (item) => {
+            if (!Array.isArray(item?.content)) return false;
+            return item.content.every((p) => p?.type === "tool_result");
+          };
           const promptFromChat = Array.isArray(chat)
             ? (() => {
-                const msg = [...chat]
-                  .reverse()
-                  .find((item) => item?.role === "user" && item?.content);
-                const c = msg?.content;
-                if (typeof c === "string") return c;
-                if (Array.isArray(c)) {
-                  const textPart = c.find((p) => p?.type === "text" || typeof p === "string");
-                  return textPart?.text || (typeof textPart === "string" ? textPart : "");
-                }
-                return "";
+                const userMsgs = chat.filter(
+                  (item) =>
+                    item?.role === "user" &&
+                    item?.content &&
+                    !isToolResultMessage(item)
+                );
+                return userMsgs.length ? extractText(userMsgs[0].content) : "";
               })()
             : "";
           const layoutPrompt = promptFromChat || tool_call.input.name || "";
@@ -246,7 +261,7 @@ class GenerateViewSkill {
             builderMode,
             table?.name,
             null,
-            chat,
+            chat
           );
           if (table && viewpattern !== "Filter") {
             const baseCfg = await initial_config_all_fields(false)({
@@ -261,12 +276,13 @@ class GenerateViewSkill {
             for (const f of fields) {
               if (f.primary_key || f.calculated) continue;
               if (layoutFieldNames.has(f.name)) continue;
-              if (f.required && f.type === "Key" && f.reftable_name === "users") {
+              if (f.type === "Key" && f.reftable_name === "users") {
                 fixed[`preset_${f.name}`] = "LoggedIn";
                 fixed[`_block_${f.name}`] = true;
               }
             }
             if (Object.keys(fixed).length > 0) wfctx.fixed = fixed;
+            wfctx.destination_type = "Back to referer";
           }
           if (viewpattern === "Filter") {
             const filterFieldSegment = findFilterFieldSegment(wfctx.layout);
@@ -292,13 +308,36 @@ class GenerateViewSkill {
               vt_prompt = vt.copilot_generate_view_prompt;
             else if (typeof vt.copilot_generate_view_prompt === "function")
               vt_prompt = await vt.copilot_generate_view_prompt(
-                tool_call.input,
+                tool_call.input
               );
           }
 
           const prefilledFields = new Set();
           if (wfctx.layout !== undefined) prefilledFields.add("layout");
           if (wfctx.columns !== undefined) prefilledFields.add("columns");
+
+          // For List views: pre-fill view_to_create with the best Edit view for the table
+          if (viewpattern === "List" && table) {
+            const candidateViews = await View.find_table_views_where(
+              table.id,
+              ({ state_fields, viewrow }) =>
+                viewrow.name !== tool_call.input.name &&
+                state_fields.every((sf) => !sf.required)
+            );
+            if (candidateViews.length > 0) {
+              const editView =
+                candidateViews.find((v) =>
+                  v.name.toLowerCase().includes("edit")
+                ) || candidateViews[0];
+              wfctx.view_to_create =
+                editView.select_option?.name || editView.name;
+              wfctx.create_view_display = "Popup";
+              wfctx.create_view_location = "Top right";
+              prefilledFields.add("view_to_create");
+              prefilledFields.add("create_view_display");
+              prefilledFields.add("create_view_location");
+            }
+          }
 
           for (const step of flow.steps) {
             if (typeof step.form !== "function") continue;
@@ -311,7 +350,9 @@ class GenerateViewSkill {
               properties[field.name] = {
                 description:
                   field.copilot_description ||
-                  `${field.label}.${field.sublabel ? ` ${field.sublabel}` : ""}`,
+                  `${field.label}.${
+                    field.sublabel ? ` ${field.sublabel}` : ""
+                  }`,
                 ...fieldProperties(field),
               };
               if (!properties[field.name].type) {
@@ -322,7 +363,9 @@ class GenerateViewSkill {
             if (!Object.keys(properties).length) continue;
 
             const answer = await generate(
-              `${vt_prompt ? vt_prompt + "\n\n" : ""}Now generate the ${step.name} details of the view by calling the generate_view_details tool`,
+              `${vt_prompt ? vt_prompt + "\n\n" : ""}Now generate the ${
+                step.name
+              } details of the view by calling the generate_view_details tool`,
               {
                 tools: [
                   {
@@ -343,13 +386,13 @@ class GenerateViewSkill {
                     name: "generate_view_details",
                   },
                 },
-              },
+              }
             );
             const tc = answer.getToolCalls()[0];
             await getState().functions.llm_add_message.run(
               "tool_response",
               { type: "text", value: "Details provided" },
-              { chat, tool_call: tc },
+              { chat, tool_call: tc }
             );
             Object.assign(wfctx, tc.input);
           }
@@ -387,7 +430,7 @@ class GenerateViewSkill {
             pre(JSON.stringify(wfctx, null, 2)) +
             div(
               { style: { maxHeight: 800, maxWidth: 500, overflow: "scroll" } },
-              runres,
+              runres
             ),
           add_user_action: {
             name: "build_copilot_view_gen",
