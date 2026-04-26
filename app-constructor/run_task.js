@@ -23,18 +23,18 @@ const runNextTask = async (alwaysRun) => {
       type: "CopilotConstructMgr",
       name: "task",
     },
-    { orderBy: "id" },
+    { orderBy: "id" }
   );
   const todos = tasks.filter(
-    (t) => !t.body.status || t.body.status === "To do",
+    (t) => !t.body.status || t.body.status === "To do"
   );
   const done = tasks.filter((t) => t.body.status === "Done");
   const done_names = new Set(done.map((t) => t.body.name));
- 
+
   const startable = todos.filter((t) =>
-    t.body.depends_on.every((nm) => done_names.has(nm)),
+    t.body.depends_on.every((nm) => done_names.has(nm))
   );
- 
+
   if (startable[0]) {
     console.log("running task", startable[0]);
 
@@ -80,6 +80,8 @@ Out of scope: ${spec.body.out_of_scope}
 Visual style: ${spec.body.visual_style}
 
 Important: The database schema is already fully implemented. Do NOT use generate_tables or modify any tables or fields — all tables and fields already exist.
+
+Important: Some fields are non-stored (virtual) calculated fields — they have no database column and are computed on-the-fly by Saltcorn. Never include such fields in modify_row, SQL UPDATE statements, or recalculate_stored_fields calls. Only fields that exist as actual database columns (regular fields and stored calculated fields) can be written. If a calculated field needs updating, it will refresh automatically when the fields it depends on change.
 
 Your task now is:
 ${md.body.description}`;

@@ -171,13 +171,14 @@ class GenerateTables {
     const tableLines = [];
     const tables = await Table.find({});
     tables.forEach((table) => {
-      const fieldLines = table.fields.map(
-        (f) =>
-          `  * ${f.name} with type: ${f.pretty_type.replace(
-            "Key to",
-            "ForeignKey referencing"
-          )}.${f.description ? ` ${f.description}` : ""}`
-      );
+      const fieldLines = table.fields.map((f) => {
+        const virtualTag =
+          f.calculated && !f.stored ? " (virtual, read-only)" : "";
+        return `  * ${f.name} with type: ${f.pretty_type.replace(
+          "Key to",
+          "ForeignKey referencing"
+        )}${virtualTag}.${f.description ? ` ${f.description}` : ""}`;
+      });
       tableLines.push(
         `${table.name}${
           table.description ? `: ${table.description}.` : "."

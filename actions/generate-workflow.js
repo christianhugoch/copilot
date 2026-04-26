@@ -14,7 +14,7 @@ const optionNames = (options = []) =>
     .map((opt) =>
       typeof opt === "string"
         ? opt
-        : opt?.name || opt?.label || opt?.value || "",
+        : opt?.name || opt?.label || opt?.value || ""
     )
     .filter(Boolean);
 
@@ -39,8 +39,12 @@ const summarizeTriggerActionMatrix = () => {
       const pool = table_triggers.includes(when) ? allActions : noRowActions;
       return `* ${when}: ${joinOptionNames(pool)}`;
     });
-    const notes = `Triggers requiring a table context: ${table_triggers.join(", ")}.
-Additional triggers that commonly use contextual only_if checks: ${additional_triggers_with_onlyif.join(", ")}.`;
+    const notes = `Triggers requiring a table context: ${table_triggers.join(
+      ", "
+    )}.
+Additional triggers that commonly use contextual only_if checks: ${additional_triggers_with_onlyif.join(
+      ", "
+    )}.`;
     return `${notes}
 ${lines.join("\n")}`;
   } catch (e) {
@@ -58,8 +62,10 @@ const summarizeTables = async () => {
     const rows = tables.map((table) => {
       const description = table.description ? ` – ${table.description}` : "";
       const fields = (table.fields || [])
-        .slice(0, 8)
-        .map((f) => `${f.name}:${fieldType(f)}`)
+        .map((f) => {
+          const tag = f.calculated && !f.stored ? " (virtual, read-only)" : "";
+          return `${f.name}:${fieldType(f)}${tag}`;
+        })
         .join(", ");
       const fieldText = fields ? ` fields: ${fields}` : "";
       return `* ${table.name}${description}${fieldText}`;
@@ -77,7 +83,7 @@ const steps = async () => {
 
   let stateActions = getState().actions;
   const stateActionList = Object.entries(stateActions).filter(
-    ([k, v]) => !v.disableInWorkflow,
+    ([k, v]) => !v.disableInWorkflow
   );
 
   const stepTypeAndCfg = Object.keys(actionExplainers).map((actionName) => {
@@ -85,7 +91,7 @@ const steps = async () => {
       step_type: { type: "string", enum: [actionName] },
     };
     const myFields = actionFields.filter(
-      (f) => f.showIf?.wf_action_name === actionName,
+      (f) => f.showIf?.wf_action_name === actionName
     );
     const required = ["step_type"];
     myFields.forEach((f) => {
@@ -147,14 +153,15 @@ const steps = async () => {
       const table = Table.findOne({ id: trigger.table_id });
       const fieldSpecs = [];
       table.fields.forEach((f) => {
+        if (f.calculated && !f.stored) return; // virtual fields have no DB column
         // TODO fkeys dereferenced.
         fieldSpecs.push(`${f.name} with ${f.pretty_type} type`);
       });
       properties.row_expr = {
         type: "string",
         description: `JavaScript expression for the input to the action. This should be an expression for an object, with the following field name and types: ${fieldSpecs.join(
-          "; ",
-        )}.`,
+          "; "
+        )}. IMPORTANT: omit any non-stored calculated fields — they have no database column and cannot be written. Only include regular fields and stored calculated fields. Keep this expression simple: it should reference values already in the context, not perform inline queries or complex logic. If the values are not yet in context, add a dedicated preceding step (TableQuery, run_js_code, or whichever fits) to fetch or compute them first.`,
       };
     }
     const required = ["step_type"];
@@ -218,7 +225,9 @@ class GenerateWorkflow {
           enum: Trigger.when_options,
         },
         trigger_table: {
-          description: `If the workflow trigger is ${table_triggers.join(", ")}, the name of the table that triggers the workflow`,
+          description: `If the workflow trigger is ${table_triggers.join(
+            ", "
+          )}, the name of the table that triggers the workflow`,
           type: "string",
         },
       },
@@ -229,7 +238,7 @@ class GenerateWorkflow {
     const actionExplainers = WorkflowStep.builtInActionExplainers();
     let stateActions = getState().actions;
     const stateActionList = Object.entries(stateActions).filter(
-      ([k, v]) => !v.disableInWorkflow,
+      ([k, v]) => !v.disableInWorkflow
     );
     const [tableSummary, triggerMatrix] = await Promise.all([
       summarizeTables(),
@@ -251,6 +260,12 @@ class GenerateWorkflow {
   The step name should be a valid JavaScript identifier.
 
   When the user explicitly names an action/step type (for example "ForLoop" or "Toast"), ensure the generated workflow contains at least one step whose step_configuration.step_type exactly matches every requested action. Only skip this if the action genuinely does not exist; in that case, clearly explain the omission in the workflow description.
+
+  CRITICAL — non-stored calculated fields cannot be written:
+  In the table summary above, fields marked (virtual, read-only) are non-stored calculated fields — they have no database column and are computed on-the-fly by Saltcorn. Never include such fields in modify_row row expressions, run_js_code return objects, or SQL UPDATE statements. If you see a field in the table summary marked (virtual, read-only), treat it as read-only everywhere: omit it from any write operation. Only regular fields and stored calculated fields (not marked virtual) have database columns and can be written. Virtual fields refresh automatically when the fields they depend on change — no explicit update is needed.
+
+  IMPORTANT — keep row expressions simple; use dedicated steps for data fetching:
+  Row expressions (e.g. in modify_row) should be simple references to values already in the context — not inline queries or complex logic. If the values you need are not already in context, add a dedicated step before the row expression step to fetch or compute them and write the results into the context. Choose the step type that fits the job: TableQuery to query a table, run_js_code for custom computation, or any other appropriate step. Each step should do one clear thing; the row expression then just picks the relevant context values.
 
   CRITICAL — every workflow must form a single connected chain from the first step to the last:
   - Every step except the very last one MUST have a next_step that names another step in the workflow.
@@ -288,9 +303,11 @@ class GenerateWorkflow {
   step types:
   
   run_js_code: if the step_type is "run_js_code" then the step object should include the JavaScript code to be executed in the "code"
-  key. You can use await in the code if you need to run asynchronous code. The values in the context are directly in scope and can be accessed using their name. In addition, the variable 
+  key. You can use await in the code if you need to run asynchronous code. The values in the context are directly in scope and can be accessed using their name. In addition, the variable
   "context" is also in scope and can be used to address the context as a whole. To write values to the context, return an
-  object. The values in this object will be written into the current context. If a value already exists in the context 
+  object. The following Saltcorn models are already available in scope without any require: Table, Row, Field, User, View, Trigger, Page, File — use them directly.
+  When you need to require other modules, always use a plain require call, e.g. const moment = require('moment');
+  NEVER use the pattern const X = X || require(...) — this causes a ReferenceError because const variables cannot be referenced before initialization. The values in this object will be written into the current context. If a value already exists in the context 
   it will be overwritten. For example, If the context contains values x and y which are numbers and you would like to push
   the value "sum" which is the sum of x and y, then use this as the code: return {sum: x+y}. You cannot set the next step in the 
   return object or by returning a string from a run_js_code step, this will not work. To set the next step from a code action, always use the next_step property of the step object.
@@ -376,7 +393,7 @@ class GenerateWorkflow {
         "Workflow created. " +
         a(
           { target: "_blank", href: `/actions/configure/${trigger.id}` },
-          "Configure workflow.",
+          "Configure workflow."
         ),
     };
   }
@@ -394,14 +411,14 @@ class GenerateWorkflow {
         step.id = ix + 1;
       });
       const mmdia = WorkflowStep.generate_diagram(
-        steps.map((s) => new WorkflowStep(s)),
+        steps.map((s) => new WorkflowStep(s))
       );
       console.log({ mmdia });
       return (
         div(
           `${workflow_name}${when_trigger ? `: ${when_trigger}` : ""}${
             trigger_table ? ` on ${trigger_table}` : ""
-          }`,
+          }`
         ) +
         pre({ class: "mermaid" }, mmdia) +
         script(
@@ -410,13 +427,13 @@ class GenerateWorkflow {
             mermaid.initialize({ startOnLoad: false });
             mermaid.run({ querySelector: ".mermaid" });
           });
-        `),
-        ) 
+        `)
+        )
       );
     }
 
     return `A workflow! Step names: ${workflow_steps.map(
-      (s) => s.step_name,
+      (s) => s.step_name
     )}. Upgrade Saltcorn to see diagrams in copilot`;
   }
 
