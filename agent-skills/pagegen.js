@@ -96,7 +96,7 @@ class GeneratePageSkill {
           );
         } else return "Metadata recieved";
       },
-      postProcess: async ({ tool_call, generate }) => {
+      postProcess: async ({ tool_call, generate, req }) => {
         const str = await generate(
           `Now generate the contents of the ${tool_call.input.name} HTML page. If I asked you to embed a view, 
  use the <embed-view> self-closing tag to do so, setting the view name in the viewname attribute. For example, 
@@ -120,6 +120,19 @@ class GeneratePageSkill {
           ? str.split("```html")[1].split("```")[0]
           : str;
 
+        if (this.yoloMode) {
+          await this.userActions.build_copilot_page_gen({
+            user: req?.user,
+            name: tool_call.input.name,
+            title: tool_call.input.title,
+            description: tool_call.input.description,
+            html,
+          });
+          return {
+            stop: true,
+            add_response: `Page ${tool_call.input.name} created.`,
+          };
+        }
         return {
           stop: true,
           add_response: iframe({
@@ -127,10 +140,10 @@ class GeneratePageSkill {
             width: 500,
             height: 800,
           }),
-          add_system_prompt: `If the user asks you to regenerate the page, 
-          you must run the generate_page tool again. After running this tool 
-          you will be prompted to generate the html again. You should repeat 
-          the html from the previous answer except for the changes the user 
+          add_system_prompt: `If the user asks you to regenerate the page,
+          you must run the generate_page tool again. After running this tool
+          you will be prompted to generate the html again. You should repeat
+          the html from the previous answer except for the changes the user
           is requesting.`,
           add_user_action: {
             name: "build_copilot_page_gen",
