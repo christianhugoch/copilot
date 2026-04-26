@@ -50,7 +50,7 @@ const showSchema = async (req) => {
   if (schema) {
     const preview = GenerateTables.render_html(
       { tables: schema.body.tables },
-      true,
+      true
     );
 
     return div(
@@ -64,16 +64,16 @@ const showSchema = async (req) => {
               class: "btn btn-primary me-2",
               onclick: `view_post("${viewname}", "implement_schema")`,
             },
-            "Implement schema",
+            "Implement schema"
           ),
           button(
             {
               class: "btn btn-outline-danger",
               onclick: `view_post("${viewname}", "del_schema")`,
             },
-            "Delete schema",
-          ),
-        ),
+            "Delete schema"
+          )
+        )
     );
   } else {
     return div(
@@ -84,8 +84,8 @@ const showSchema = async (req) => {
           class: "btn btn-primary",
           onclick: `press_store_button(this);view_post("${viewname}", "gen_schema")`,
         },
-        "Generate schema",
-      ),
+        "Generate schema"
+      )
     );
   }
 };
@@ -121,14 +121,24 @@ ${saltcorn_description}
 
 ${existing_tables_list(existing_tables)}
 
-Now use the ${databaseDesignTool.function.name} tool to generate the database schema for this software application
+Design a complete database schema that covers ALL requirements listed above. Every distinct entity in the application must have its own table. Do not produce a minimal or partial schema — all tables needed to implement every requirement must be included in this single call. Do not leave any tables for a later step.
+
+For every field that must be unique (e.g. unique email, unique slug, unique combination keys expressed as individual unique fields), set unique=true on that field.
+For every field that must not be empty, set not_null=true.
+Do NOT leave uniqueness or required constraints for a later step — express them fully in this schema.
+
+Note: ownership configuration (automatically populating a FK-to-users field from the logged-in user) is a VIEW-level concern and cannot be expressed in the schema. Do not attempt to annotate fields as "ownership fields" here — simply define the foreign key field normally. Ownership will be configured when the Edit views are generated.
+
+Now use the ${
+      databaseDesignTool.function.name
+    } tool to generate the complete database schema for this software application
 `,
     {
       tools: [databaseDesignTool],
       ...tool_choice(databaseDesignTool.function.name),
       systemPrompt:
-        "You are a database designer. The user wants to build an application, and you must analyse their application description and the requirements and come up with a good database design",
-    },
+        "You are a database designer. The user wants to build an application, and you must analyse their application description and requirements and design a complete schema. Every entity needed by any requirement must have its own table. Never produce a partial schema.",
+    }
   );
 
   const tc = answer.getToolCalls()[0];
@@ -156,7 +166,7 @@ const implement_schema = async (
   viewname,
   config,
   body,
-  { req, res },
+  { req, res }
 ) => {
   const md = await MetaData.findOne({
     type: "CopilotConstructMgr",

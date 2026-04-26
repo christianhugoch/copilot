@@ -157,9 +157,13 @@ const buildBuilderSchema = ({ mode, ctx }) => {
     Array.isArray(rawIcons) ? rawIcons : Object.keys(rawIcons)
   ).slice(0, 15);
 
-  const fieldNames = fields.map((f) => f.name).filter(Boolean);
+  const isEditMode = normalizedMode === "edit" || normalizedMode === "filter";
+  const visibleFields = isEditMode
+    ? fields.filter((f) => !f.calculated)
+    : fields;
+  const fieldNames = visibleFields.map((f) => f.name).filter(Boolean);
   const fieldviewOptions = Array.from(
-    new Set(fields.flatMap((f) => f.fieldviews || []).filter(Boolean)),
+    new Set(visibleFields.flatMap((f) => f.fieldviews || []).filter(Boolean))
   );
 
   const defs = {
@@ -256,11 +260,11 @@ const buildBuilderSchema = ({ mode, ctx }) => {
     },
     imageLocation: makeEnum(
       IMAGE_LOCATIONS,
-      "Image location for card/container backgrounds.",
+      "Image location for card/container backgrounds."
     ),
     imageSize: makeEnum(
       IMAGE_SIZES,
-      "Image sizing for Card or Body locations.",
+      "Image sizing for Card or Body locations."
     ),
     gradStartColor: {
       type: "string",
@@ -649,7 +653,7 @@ const buildBuilderSchema = ({ mode, ctx }) => {
     { $ref: "#/$defs/join_field" },
     { $ref: "#/$defs/list_column" },
     { $ref: "#/$defs/list_columns" },
-    { $ref: "#/$defs/page" },
+    { $ref: "#/$defs/page" }
   );
 
   Object.assign(defs, {
