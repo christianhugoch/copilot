@@ -259,6 +259,10 @@ Important view planning rules:
 
 * For every task that creates a view, include the exact view name in the task description. View names must be lowercase, snake_case, unique across all tasks in the plan (no two tasks may produce a view with the same name), and descriptive enough to identify the table and purpose — for example 'packing_items_edit' rather than just 'edit'.
 
+Important user account rules:
+* The platform (Saltcorn) provides a built-in user account system with login, registration, and session management. Do NOT plan any tasks for user registration, login pages, password management, or authentication flows — these are already handled by the platform.
+* User identity is always available as the logged-in user. Ownership fields (FK to users) are set automatically from the session; no custom logic is needed.
+
 Important schema/table rules:
 * The database schema is already fully designed and implemented before task planning begins. ALL tables and fields needed by the application already exist. Do NOT plan any tasks that create tables, add fields, modify fields, or change the schema in any way. If you find yourself writing a task whose output is a table or a field, delete it — that work is already done.
 * Ownership behaviour (auto-setting a FK-to-users field from the logged-in user) is configured in the Edit view, not in the database. Do not create tasks for it at the schema level.

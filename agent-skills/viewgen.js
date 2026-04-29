@@ -1,7 +1,7 @@
 const Table = require("@saltcorn/data/models/table");
 const View = require("@saltcorn/data/models/view");
 const { fieldProperties } = require("../common");
-const { initial_config_all_fields } = require("@saltcorn/data/plugin-helper");
+const { initial_config_all_fields, build_schema_data } = require("@saltcorn/data/plugin-helper");
 const { getState } = require("@saltcorn/data/db/state");
 const {
   div,
@@ -14,6 +14,11 @@ const {
   text_attr,
 } = require("@saltcorn/markup/tags");
 const builderGen = require("../builder-gen");
+const {
+  RELATION_PATH_DOC,
+  GET_RELATION_PATHS_FUNCTION,
+  getRelationPathsForPairs,
+} = require("../relation-paths");
 
 const collectLayoutFieldNames = (segment, out = new Set()) => {
   if (!segment || typeof segment !== "object") return out;
@@ -112,14 +117,33 @@ class GenerateViewSkill {
 
   async systemPrompt() {
     return (
-      `If the user asks to generate a view, use the generate_view tool to enter ` +
-      `a view generation mode. The tool call only requires high-level details to start this sequence.\n` +
-      `The Edit viewtemplate serves both create (no id in state) and edit (id in state) — one view covers both modes.`
+      `If the user asks to generate a view, use the generate_view tool.\n` +
+      `The Edit viewtemplate serves both create (no id in state) and edit (id in state) — one view covers both.\n\n` +
+      `**Modifying an existing view — required sequence:**\n` +
+      `(1) Call get_view_config to fetch the current configuration.\n` +
+      `(2) Only if you are adding view_link columns or embedded view (type "view") segments: call get_relation_paths once with all the source_table/target_view pairs you need. For changes that don't involve linking or embedding views (e.g. adding a field, changing a label), skip this step.\n` +
+      `(3) Construct the complete updated configuration by merging your changes into the existing config.\n` +
+      `(4) Call apply_view_config with the full configuration — never null, never incomplete.\n\n` +
+      `**Generating a new view that contains view_links or embedded views:**\n` +
+      `Call get_relation_paths once with all source_table/target_view pairs you need before constructing the layout.\n\n` +
+      `**Embedded view segment format (for Show layouts):**\n` +
+      `  { "type": "view", "view": "<viewName>", "name": "<viewName>", "relation": "<from get_relation_paths>" }\n` +
+      `Do NOT use blank text segments as placeholders — always use a real view segment with a relation string from get_relation_paths.\n\n` +
+      RELATION_PATH_DOC
     );
   }
 
   get userActions() {
     return {
+      async build_copilot_view_update({ name, configuration }) {
+        const existingView = View.findOne({ name });
+        if (!existingView) return { error: `View "${name}" not found` };
+        await View.update({ configuration }, existingView.id);
+        setTimeout(() => getState().refresh_views(), 200);
+        return {
+          notify: `View updated: <a target="_blank" href="/view/${name}">${name}</a>`,
+        };
+      },
       async build_copilot_view_gen({
         wfctx,
         name,
@@ -199,7 +223,7 @@ class GenerateViewSkill {
       },
     };
 
-    return {
+    const generateViewTool = {
       type: "function",
       function: {
         name: "generate_view",
@@ -441,6 +465,114 @@ class GenerateViewSkill {
         };
       },
     };
+
+    const getViewConfigTool = {
+      type: "function",
+      function: {
+        name: "get_view_config",
+        description:
+          "Retrieve the current configuration of an existing view. " +
+          "Call this first to inspect the layout before calling apply_view_config to save changes. " +
+          "Returns the full configuration JSON and the viewtemplate name.",
+        parameters: {
+          type: "object",
+          required: ["name"],
+          properties: {
+            name: {
+              description: "The name of the existing view to inspect.",
+              type: "string",
+            },
+          },
+        },
+      },
+      process: async ({ name }) => {
+        const existingView = View.findOne({ name });
+        if (!existingView)
+          return `View "${name}" not found. Use generate_view to create a new view instead.`;
+        return (
+          `Current configuration of view "${name}" (viewtemplate: ${existingView.viewtemplate}):\n` +
+          JSON.stringify(existingView.configuration, null, 2)
+        );
+      },
+    };
+
+    const applyViewConfigTool = {
+      type: "function",
+      function: {
+        name: "apply_view_config",
+        description:
+          "Save an updated configuration to an existing view. " +
+          "IMPORTANT: You MUST call get_view_config first to obtain the current configuration. " +
+          "Then pass the full updated configuration object — never null, never an empty object. " +
+          "Preserve all existing keys unless you are explicitly changing them.",
+        parameters: {
+          type: "object",
+          required: ["name", "configuration"],
+          properties: {
+            name: {
+              description: "The name of the existing view to update.",
+              type: "string",
+            },
+            configuration: {
+              type: "object",
+              description:
+                "The complete updated configuration object for the view. " +
+                "You MUST have called get_view_config first and have the full current configuration in hand. " +
+                "Do NOT call apply_view_config until you have constructed the complete updated configuration object by merging your changes into the existing config. " +
+                "Do not pass null or an incomplete object.",
+            },
+          },
+        },
+      },
+      process: async ({ name, configuration }) => {
+        const existingView = View.findOne({ name });
+        if (!existingView) return `View "${name}" not found.`;
+        return { name, configuration, view_id: existingView.id };
+      },
+      postProcess: async ({ tool_call, req }) => {
+        const { name, configuration } = tool_call.input;
+        const existingView = View.findOne({ name });
+        if (!existingView)
+          return { stop: true, add_response: `View "${name}" not found.` };
+        const cfg =
+          configuration && typeof configuration === "object"
+            ? configuration
+            : existingView.configuration;
+
+        if (this.yoloMode) {
+          await View.update({ configuration: cfg }, existingView.id);
+          setTimeout(() => getState().refresh_views(), 200);
+          return { stop: true, add_response: `View ${name} updated.` };
+        }
+        return {
+          stop: true,
+          add_response: pre(JSON.stringify(cfg, null, 2)),
+          add_user_action: {
+            name: "build_copilot_view_update",
+            type: "button",
+            label: "Save updated view " + name,
+            input: { name, configuration: cfg },
+          },
+        };
+      },
+    };
+
+    const getRelationPathsTool = {
+      type: "function",
+      function: GET_RELATION_PATHS_FUNCTION,
+      process: async ({ pairs }) => {
+        const schemaData = await build_schema_data();
+        const sections = getRelationPathsForPairs(pairs || [], schemaData);
+        return (
+          sections.join("\n\n") +
+          `\n\nFor each pair, set the "relation" property to one of the strings listed above.\n` +
+          `Pick by type: ChildList = multiple child rows, ParentShow = single parent, OneToOneShow = unique child. ` +
+          `If multiple paths of the same type exist, choose the one whose FK field name best matches the task. Prefer shorter paths.`
+        );
+      },
+    };
+
+    return [generateViewTool, getViewConfigTool, applyViewConfigTool, getRelationPathsTool];
   };
 }
 
