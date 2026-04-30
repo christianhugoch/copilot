@@ -215,7 +215,8 @@ class GenerateWorkflow {
         workflow_steps: await steps(),
         workflow_name: {
           description:
-            "The name of the workflow. Can include spaces and mixed case, should be 1-5 words.",
+            "The name of the workflow. Can include spaces and mixed case, should be 1-5 words. " +
+            "Must be unique across all workflows. When creating variants for different events on the same table (e.g. insert, update, delete), include the event in each name — e.g. 'Recalc trip packing insert', 'Recalc trip packing update'.",
           type: "string",
         },
         when_trigger: {
@@ -253,6 +254,10 @@ class GenerateWorkflow {
 
     return `Use the generate_workflow tool to construct computational workflows according to specifications. You must create
   the workflow by calling the generate_workflow tool, with the step required to implement the specification.
+
+  **Trigger vs workflow:** If the task can be completed in a single step (e.g. updating one field with modify_row, sending a single notification), use the generate_trigger tool instead — a workflow is only appropriate when multiple steps, branching, or looping are required. If the task requires several independent single-step actions (e.g. "mark complete" and "mark incomplete"), create a separate trigger for each — do NOT bundle them into one workflow.
+
+  **Naming:** Workflow names must be unique. When creating variants for different events on the same table (e.g. insert, update, delete), include the event in each name — e.g. "Recalc trip packing insert", "Recalc trip packing update", "Recalc trip packing delete".
 
   ${contextBlocks}
 

@@ -1,7 +1,10 @@
 const Table = require("@saltcorn/data/models/table");
 const View = require("@saltcorn/data/models/view");
 const { fieldProperties } = require("../common");
-const { initial_config_all_fields, build_schema_data } = require("@saltcorn/data/plugin-helper");
+const {
+  initial_config_all_fields,
+  build_schema_data,
+} = require("@saltcorn/data/plugin-helper");
 const { getState } = require("@saltcorn/data/db/state");
 const {
   div,
@@ -122,8 +125,8 @@ class GenerateViewSkill {
       `**Modifying an existing view — required sequence:**\n` +
       `(1) Call get_view_config to fetch the current configuration.\n` +
       `(2) Only if you are adding view_link columns or embedded view (type "view") segments: call get_relation_paths once with all the source_table/target_view pairs you need. For changes that don't involve linking or embedding views (e.g. adding a field, changing a label), skip this step.\n` +
-      `(3) Construct the complete updated configuration by merging your changes into the existing config.\n` +
-      `(4) Call apply_view_config with the full configuration — never null, never incomplete.\n\n` +
+      `(3) Write out the complete updated configuration JSON in full — every key from the existing config must be present, with only your targeted changes merged in.\n` +
+      `(4) Call apply_view_config with that complete object. NEVER call apply_view_config before step (3) is finished. NEVER call it with only the name or a partial object — the configuration field is mandatory and must be the full merged result from step (3). Calling apply_view_config without a complete configuration is an error.\n\n` +
       `**Generating a new view that contains view_links or embedded views:**\n` +
       `Call get_relation_paths once with all source_table/target_view pairs you need before constructing the layout.\n\n` +
       `**Embedded view segment format (for Show layouts):**\n` +
@@ -502,9 +505,9 @@ class GenerateViewSkill {
         name: "apply_view_config",
         description:
           "Save an updated configuration to an existing view. " +
-          "IMPORTANT: You MUST call get_view_config first to obtain the current configuration. " +
-          "Then pass the full updated configuration object — never null, never an empty object. " +
-          "Preserve all existing keys unless you are explicitly changing them.",
+          "STRICT PRECONDITION: you must have already called get_view_config AND written out the complete merged configuration JSON before calling this tool. " +
+          "Do NOT call this tool as a placeholder or before the configuration is fully constructed. " +
+          "Calling this tool without a complete configuration object is always wrong and will fail.",
         parameters: {
           type: "object",
           required: ["name", "configuration"],
@@ -516,10 +519,9 @@ class GenerateViewSkill {
             configuration: {
               type: "object",
               description:
-                "The complete updated configuration object for the view. " +
-                "You MUST have called get_view_config first and have the full current configuration in hand. " +
-                "Do NOT call apply_view_config until you have constructed the complete updated configuration object by merging your changes into the existing config. " +
-                "Do not pass null or an incomplete object.",
+                "REQUIRED. The complete updated configuration object — every key from the existing config preserved, with only your changes merged in. " +
+                "You MUST have the full object written out before calling this tool. " +
+                "Passing null, an empty object, or a partial object (e.g. only the name) is always wrong and will return an error.",
             },
           },
         },
@@ -527,6 +529,11 @@ class GenerateViewSkill {
       process: async ({ name, configuration }) => {
         const existingView = View.findOne({ name });
         if (!existingView) return `View "${name}" not found.`;
+        if (!configuration || typeof configuration !== "object")
+          return (
+            `ERROR: configuration is missing. ` +
+            `You must call get_view_config first, merge your changes into the full existing configuration, then call apply_view_config again with the complete configuration object.`
+          );
         return { name, configuration, view_id: existingView.id };
       },
       postProcess: async ({ tool_call, req }) => {
@@ -534,10 +541,14 @@ class GenerateViewSkill {
         const existingView = View.findOne({ name });
         if (!existingView)
           return { stop: true, add_response: `View "${name}" not found.` };
-        const cfg =
-          configuration && typeof configuration === "object"
-            ? configuration
-            : existingView.configuration;
+        if (!configuration || typeof configuration !== "object")
+          return {
+            stop: true,
+            add_response:
+              `apply_view_config called for "${name}" without a configuration object. ` +
+              `Call get_view_config first, merge your changes into the full existing configuration, then call apply_view_config again with the complete configuration.`,
+          };
+        const cfg = configuration;
 
         if (this.yoloMode) {
           await View.update({ configuration: cfg }, existingView.id);
@@ -572,7 +583,12 @@ class GenerateViewSkill {
       },
     };
 
-    return [generateViewTool, getViewConfigTool, applyViewConfigTool, getRelationPathsTool];
+    return [
+      generateViewTool,
+      getViewConfigTool,
+      applyViewConfigTool,
+      getRelationPathsTool,
+    ];
   };
 }
 

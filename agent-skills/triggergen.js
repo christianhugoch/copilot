@@ -7,7 +7,7 @@ const GenerateAnyAction = require("../actions/generate-trigger");
 
 const flattenOptionGroups = (options = []) =>
   options.flatMap((opt) =>
-    opt?.optgroup && Array.isArray(opt.options) ? opt.options : [opt],
+    opt?.optgroup && Array.isArray(opt.options) ? opt.options : [opt]
   );
 
 class AnyActionSkill {
@@ -25,7 +25,15 @@ class AnyActionSkill {
     return (
       `If the user asks to create an action or trigger, use the generate_trigger tool. ` +
       `Pick the most appropriate action_type from the available options. ` +
-      `Only set when_trigger and trigger_table if the user has specified them.`
+      `Only set when_trigger and trigger_table if the user has specified them. ` +
+      `Trigger names must be unique — when creating variants for different events on the same table, include the event in each name (e.g. "Recalc trip packing insert", "Recalc trip packing update", "Recalc trip packing delete").\n\n` +
+      `**Trigger vs workflow:** Use a trigger (this tool) when the action is a single step — ` +
+      `for example, setting a field value with modify_row, sending a notification, or calling an API. ` +
+      `Only use a workflow when the logic requires multiple steps, branching, or looping. ` +
+      `If the task requires several independent single-step actions (e.g. "mark complete" and "mark incomplete"), call this tool once per action — do NOT bundle them into one workflow.\n\n` +
+      `**Navigation is a view concern:** If a task description says "return the user to X" or "navigate back", ` +
+      `do NOT add a navigation step inside the trigger. Triggers only handle data operations. ` +
+      `Navigation (GoBack) is configured on the button in the list view, not inside the trigger itself.`
     );
   }
 
@@ -51,7 +59,7 @@ class AnyActionSkill {
             trigger_table,
             action_config,
           },
-          { user },
+          { user }
         );
         return { notify: result?.postExec || `Action saved: ${name}` };
       },
@@ -74,7 +82,7 @@ class AnyActionSkill {
     const stateActionNames = Object.keys(stateActions);
     const catalogNames = flattenOptionGroups(allActionOptions);
     const actionEnum = Array.from(
-      new Set([...catalogNames, ...stateActionNames]),
+      new Set([...catalogNames, ...stateActionNames])
     ).sort();
 
     const tables = (state.tables || []).map((t) => t.name);
@@ -91,7 +99,8 @@ class AnyActionSkill {
             name: {
               type: "string",
               description:
-                "A human-readable name for the trigger/action (1–5 words).",
+                "A human-readable name for the trigger/action (1–5 words). " +
+                "Must be unique across all triggers. When creating multiple triggers for different events on the same table (e.g. insert, update, delete), include the event in the name — e.g. 'Recalc trip packing insert', 'Recalc trip packing update'.",
             },
             action_type: {
               type: "string",
@@ -123,7 +132,7 @@ class AnyActionSkill {
           .filter(Boolean)
           .join("\n");
       },
-      postProcess: async ({ tool_call, generate }) => {
+      postProcess: async ({ tool_call, generate, chat }) => {
         const { name, action_type, when_trigger, trigger_table } =
           tool_call.input || {};
         if (!name || !action_type) {
@@ -148,7 +157,7 @@ class AnyActionSkill {
           } catch (_) {}
 
           const configurable = cfgFields.filter(
-            (f) => f.input_type !== "section_header",
+            (f) => f.input_type !== "section_header"
           );
           if (configurable.length > 0) {
             const properties = {};
@@ -178,11 +187,24 @@ class AnyActionSkill {
                   type: "function",
                   function: { name: "generate_action_config" },
                 },
-              },
+              }
             );
 
             const tc = answer.getToolCalls()[0];
-            if (tc?.input) action_config = tc.input;
+            if (tc?.input) {
+              action_config = tc.input;
+              // Push the tool result so the chat stays consistent — without this
+              // the next LLM call sees an unanswered tool call and throws MissingToolResultsError.
+              const llm_add_message = getState().functions.llm_add_message;
+              await llm_add_message.run(
+                "tool_response",
+                "Configuration received.",
+                {
+                  chat,
+                  tool_call: tc,
+                }
+              );
+            }
           }
         }
 
@@ -195,7 +217,7 @@ class AnyActionSkill {
               trigger_table,
               action_config,
             },
-            {},
+            {}
           );
           return {
             stop: true,

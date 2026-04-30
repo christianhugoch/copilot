@@ -65,6 +65,7 @@ const runTask = async (md_id, req) => {
         { skill_type: "Generate Page", yoloMode: true },
         { skill_type: "Database design", yoloMode: true },
         { skill_type: "Generate Workflow", yoloMode: true },
+        { skill_type: "Generate trigger", yoloMode: true },
         { skill_type: "Generate View", yoloMode: true },
         { skill_type: "Install Plugin", yoloMode: true },
         { skill_type: "AppConstructor Context" },
@@ -110,10 +111,10 @@ ${md.body.description}`;
     typeof lastInteraction.content === "string"
       ? lastInteraction.content
       : lastInteraction.content.text
-        ? lastInteraction.content.text
-        : Array.isArray(lastInteraction.content)
-          ? lastInteraction.content[0].text
-          : lastInteraction.content;
+      ? lastInteraction.content.text
+      : Array.isArray(lastInteraction.content)
+      ? lastInteraction.content[0].text
+      : lastInteraction.content;
   await MetaData.create({
     type: "CopilotConstructMgr",
     name: "progress",
