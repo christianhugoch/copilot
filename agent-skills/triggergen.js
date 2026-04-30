@@ -160,8 +160,24 @@ class AnyActionSkill {
               if (!properties[f.name].type) properties[f.name].type = "string";
             }
 
+            let actionPrompt = "";
+            if (stateAction.copilot_generate_trigger_prompt) {
+              if (
+                typeof stateAction.copilot_generate_trigger_prompt === "string"
+              )
+                actionPrompt = stateAction.copilot_generate_trigger_prompt;
+              else if (
+                typeof stateAction.copilot_generate_trigger_prompt ===
+                "function"
+              )
+                actionPrompt =
+                  await stateAction.copilot_generate_trigger_prompt(
+                    tool_call.input,
+                  );
+            }
+
             const answer = await generate(
-              `Configure the "${action_type}" action named "${name}". ` +
+              `${actionPrompt ? actionPrompt + "\n\n" : ""}Configure the "${action_type}" action named "${name}". ` +
                 `Fill in the configuration by calling the generate_action_config tool.`,
               {
                 tools: [
