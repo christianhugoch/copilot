@@ -7,7 +7,7 @@ const GenerateAnyAction = require("../actions/generate-trigger");
 
 const flattenOptionGroups = (options = []) =>
   options.flatMap((opt) =>
-    opt?.optgroup && Array.isArray(opt.options) ? opt.options : [opt]
+    opt?.optgroup && Array.isArray(opt.options) ? opt.options : [opt],
   );
 
 class AnyActionSkill {
@@ -59,7 +59,7 @@ class AnyActionSkill {
             trigger_table,
             action_config,
           },
-          { user }
+          { user },
         );
         return { notify: result?.postExec || `Action saved: ${name}` };
       },
@@ -82,7 +82,7 @@ class AnyActionSkill {
     const stateActionNames = Object.keys(stateActions);
     const catalogNames = flattenOptionGroups(allActionOptions);
     const actionEnum = Array.from(
-      new Set([...catalogNames, ...stateActionNames])
+      new Set([...catalogNames, ...stateActionNames]),
     ).sort();
 
     const tables = (state.tables || []).map((t) => t.name);
@@ -157,7 +157,7 @@ class AnyActionSkill {
           } catch (_) {}
 
           const configurable = cfgFields.filter(
-            (f) => f.input_type !== "section_header"
+            (f) => f.input_type !== "section_header",
           );
           if (configurable.length > 0) {
             const properties = {};
@@ -169,9 +169,25 @@ class AnyActionSkill {
               if (!properties[f.name].type) properties[f.name].type = "string";
             }
 
+            let actionPrompt = "";
+            if (stateAction.copilot_generate_trigger_prompt) {
+              if (
+                typeof stateAction.copilot_generate_trigger_prompt === "string"
+              )
+                actionPrompt = stateAction.copilot_generate_trigger_prompt;
+              else if (
+                typeof stateAction.copilot_generate_trigger_prompt ===
+                "function"
+              )
+                actionPrompt =
+                  await stateAction.copilot_generate_trigger_prompt(
+                    tool_call.input,
+                  );
+            }
+
             const llm = getState().functions.llm_generate;
             const answer = await llm.run(
-              `Configure the "${action_type}" action named "${name}". ` +
+              `${actionPrompt ? actionPrompt + "\n\n" : ""}Configure the "${action_type}" action named "${name}". ` +
                 `Fill in the configuration by calling the generate_action_config tool.`,
               {
                 tools: [
@@ -188,7 +204,7 @@ class AnyActionSkill {
                   type: "function",
                   function: { name: "generate_action_config" },
                 },
-              }
+              },
             );
 
             const tc = answer.getToolCalls()[0];
@@ -205,7 +221,7 @@ class AnyActionSkill {
               trigger_table,
               action_config,
             },
-            {}
+            {},
           );
           return {
             stop: true,
