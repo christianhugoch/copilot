@@ -84,11 +84,11 @@ ${md.body.description}`;
   const lastText =
     typeof lastInteraction.content === "string"
       ? lastInteraction.content
-      : lastInteraction.content.text
-      ? lastInteraction.content.text
-      : Array.isArray(lastInteraction.content)
-      ? lastInteraction.content[0].text
-      : lastInteraction.content;
+        : lastInteraction.content.text
+        ? lastInteraction.content.text
+          : Array.isArray(lastInteraction.content)
+          ? lastInteraction.content[0].text
+          : lastInteraction.content;
   await MetaData.create({
     type: "CopilotConstructMgr",
     name: "progress",
