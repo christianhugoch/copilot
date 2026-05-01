@@ -120,7 +120,8 @@ class GenerateViewSkill {
 
   async systemPrompt() {
     return (
-      `If the user asks to generate a view, use the generate_view tool.\n` +
+      `If the user asks to generate a view, use the generate_view tool — but ONLY if the view does not already exist. ` +
+      `If a view with that name already exists, do NOT call generate_view — doing so will create a duplicate. Instead follow the modification sequence below.\n` +
       `The Edit viewtemplate serves both create (no id in state) and edit (id in state) — one view covers both.\n\n` +
       `**Modifying an existing view — required sequence:**\n` +
       `(1) Call get_view_config to fetch the current configuration.\n` +
@@ -154,6 +155,11 @@ class GenerateViewSkill {
         table,
         min_role,
       }) {
+        const existing = View.findOne({ name });
+        if (existing)
+          return {
+            error: `View "${name}" already exists. Use get_view_config and apply_view_config to update it.`,
+          };
         const normalizedRole = min_role || "public";
         const tableRow = table ? Table.findOne({ name: table }) : null;
         await View.create({
@@ -231,7 +237,7 @@ class GenerateViewSkill {
       function: {
         name: "generate_view",
         description:
-          "Generate a view by supplying high-level details. This will trigger a view generation sequence",
+          "Generate a NEW view by supplying high-level details. Only call this for views that do not yet exist — if the view already exists, use get_view_config + apply_view_config instead.",
         parameters,
       },
       process: async (input) => {
@@ -429,6 +435,13 @@ class GenerateViewSkill {
         const min_role = rolesState
           ? (rolesState.find((r) => r.role === roleName) || { id: 100 }).id
           : { admin: 1, public: 100, user: 80 }[roleName] ?? 100;
+        const existingView = View.findOne({ name: tool_call.input.name });
+        if (existingView) {
+          return {
+            stop: true,
+            add_response: `Error: view "${tool_call.input.name}" already exists. Do NOT call generate_view again — use get_view_config to inspect the current configuration and apply_view_config to update it.`,
+          };
+        }
         const view = new View({
           name: tool_call.input.name,
           viewtemplate: tool_call.input.viewpattern,

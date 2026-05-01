@@ -253,6 +253,7 @@ Important trigger planning rules:
 * When a task involves a simple field update (e.g. marking an item complete or incomplete), plan it as a trigger using modify_row — NOT a workflow. Use a workflow only when multiple steps, branching, or looping are genuinely required.
 * If multiple independent single-step actions are needed (e.g. "mark complete" and "mark incomplete"), describe them as separate triggers in the task description — do not describe them as one combined workflow.
 * Do NOT mention "navigate back" or "return to context" in trigger task descriptions. Navigation is configured at the view level (GoBack button), not inside a trigger.
+* If a trigger should be accessible as a button in a view, the task description must name the target view and say to add an action segment with action_name set to the trigger's name. If the view already exists, combine trigger creation and view update in the same task. If the view is created in a later task, that task's description must mention adding the trigger button, and it must depend on the trigger task.
 * Do NOT plan any task that writes to a virtual (read-only) calculated field. Virtual fields are computed automatically and cannot be stored — any trigger or workflow that tries to update them will be refused. If you find yourself planning a trigger to keep a calculated field "current", delete that task — the field already updates itself.
 
 Important view planning rules:
@@ -318,14 +319,12 @@ const del_task = async (table_id, viewname, config, body, { req, res }) => {
 };
 const run_task = async (table_id, viewname, config, body, { req, res }) => {
   const reqUser = req?.user;
-  setImmediate(async () => {
-    try {
-      if (body.id) await runTask(body.id, { user: reqUser, __: req.__ });
-      else await runNextTask(true);
-    } catch (e) {
-      console.error("run_task background error", e);
-    }
-  });
+  if (body.id)
+    runTask(body.id, { user: reqUser, __: req.__ }).catch((e) =>
+      console.error("run_task error", e)
+    );
+  else
+    runNextTask(true).catch((e) => console.error("run_task error", e));
   return { json: { reload_page: true } };
 };
 
@@ -353,6 +352,7 @@ const start = async (table_id, viewname, config, body, { req, res }) => {
       name: "settings",
       body: { running: true },
     });
+  runNextTask().catch((e) => console.error("start error", e));
   return { json: { reload_page: true } };
 };
 const stop = async (table_id, viewname, config, body, { req, res }) => {

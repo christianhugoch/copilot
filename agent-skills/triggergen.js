@@ -132,7 +132,7 @@ class AnyActionSkill {
           .filter(Boolean)
           .join("\n");
       },
-      postProcess: async ({ tool_call, generate, chat }) => {
+      postProcess: async ({ tool_call, generate }) => {
         const { name, action_type, when_trigger, trigger_table } =
           tool_call.input || {};
         if (!name || !action_type) {
@@ -169,7 +169,8 @@ class AnyActionSkill {
               if (!properties[f.name].type) properties[f.name].type = "string";
             }
 
-            const answer = await generate(
+            const llm = getState().functions.llm_generate;
+            const answer = await llm.run(
               `Configure the "${action_type}" action named "${name}". ` +
                 `Fill in the configuration by calling the generate_action_config tool.`,
               {
@@ -191,20 +192,7 @@ class AnyActionSkill {
             );
 
             const tc = answer.getToolCalls()[0];
-            if (tc?.input) {
-              action_config = tc.input;
-              // Push the tool result so the chat stays consistent — without this
-              // the next LLM call sees an unanswered tool call and throws MissingToolResultsError.
-              const llm_add_message = getState().functions.llm_add_message;
-              await llm_add_message.run(
-                "tool_response",
-                "Configuration received.",
-                {
-                  chat,
-                  tool_call: tc,
-                }
-              );
-            }
+            if (tc?.input) action_config = tc.input;
           }
         }
 

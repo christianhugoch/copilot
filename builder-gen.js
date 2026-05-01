@@ -44,7 +44,9 @@ Alternatively wrap groups of fields in a card with a descriptive title.`;
 const EDIT_ACTIONS = `\
 Use edit fieldviews, group related inputs, and finish with a row of actions: \
 a Save button (action_name "Save", style "btn btn-primary") and \
-a Cancel button (action_name "GoBack", style "btn btn-outline-secondary").`;
+a Cancel button (action_name "GoBack", style "btn btn-outline-secondary"). \
+To add a trigger button, add an extra action segment with action_name set to the trigger's name \
+exactly as it appears in the available actions list (ctx.actions).`;
 
 // ── Show-mode guidance blocks ─────────────────────────────────────────────────
 
