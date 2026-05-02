@@ -25,7 +25,15 @@ class AnyActionSkill {
     return (
       `If the user asks to create an action or trigger, use the generate_trigger tool. ` +
       `Pick the most appropriate action_type from the available options. ` +
-      `Only set when_trigger and trigger_table if the user has specified them.`
+      `Only set when_trigger and trigger_table if the user has specified them. ` +
+      `Trigger names must be unique — when creating variants for different events on the same table, include the event in each name (e.g. "Recalc trip packing insert", "Recalc trip packing update", "Recalc trip packing delete").\n\n` +
+      `**Trigger vs workflow:** Use a trigger (this tool) when the action is a single step — ` +
+      `for example, setting a field value with modify_row, sending a notification, or calling an API. ` +
+      `Only use a workflow when the logic requires multiple steps, branching, or looping. ` +
+      `If the task requires several independent single-step actions (e.g. "mark complete" and "mark incomplete"), call this tool once per action — do NOT bundle them into one workflow.\n\n` +
+      `**Navigation is a view concern:** If a task description says "return the user to X" or "navigate back", ` +
+      `do NOT add a navigation step inside the trigger. Triggers only handle data operations. ` +
+      `Navigation (GoBack) is configured on the button in the list view, not inside the trigger itself.`
     );
   }
 
@@ -91,7 +99,8 @@ class AnyActionSkill {
             name: {
               type: "string",
               description:
-                "A human-readable name for the trigger/action (1–5 words).",
+                "A human-readable name for the trigger/action (1–5 words). " +
+                "Must be unique across all triggers. When creating multiple triggers for different events on the same table (e.g. insert, update, delete), include the event in the name — e.g. 'Recalc trip packing insert', 'Recalc trip packing update'.",
             },
             action_type: {
               type: "string",
@@ -176,7 +185,8 @@ class AnyActionSkill {
                   );
             }
 
-            const answer = await generate(
+            const llm = getState().functions.llm_generate;
+            const answer = await llm.run(
               `${actionPrompt ? actionPrompt + "\n\n" : ""}Configure the "${action_type}" action named "${name}". ` +
                 `Fill in the configuration by calling the generate_action_config tool.`,
               {

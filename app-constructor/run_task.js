@@ -8,41 +8,13 @@ const { findType } = require("@saltcorn/data/models/discovery");
 const { save_menu_items } = require("@saltcorn/data/models/config");
 const db = require("@saltcorn/data/db");
 const WorkflowRun = require("@saltcorn/data/models/workflow_run");
+const User = require("@saltcorn/data/models/user");
 const { viewname } = require("./common");
 
-const runNextTask = async (alwaysRun) => {
-  if (!alwaysRun) {
-    const settings = await MetaData.findOne({
-      type: "CopilotConstructMgr",
-      name: "settings",
-    });
-    if (!settings?.body?.running) return;
-  }
-  const tasks = await MetaData.find(
-    {
-      type: "CopilotConstructMgr",
-      name: "task",
-    },
-    { orderBy: "id" }
-  );
-  const todos = tasks.filter(
-    (t) => !t.body.status || t.body.status === "To do"
-  );
-  const done = tasks.filter((t) => t.body.status === "Done");
-  const done_names = new Set(done.map((t) => t.body.name));
-
-  const startable = todos.filter((t) =>
-    t.body.depends_on.every((nm) => done_names.has(nm))
-  );
-
-  if (startable[0]) {
-    console.log("running task", startable[0]);
-
-    return await runTask(startable[0].id, {});
-  }
-  //not done
-};
-
+/**
+ * @param {number} md_id - MetaData id of the task to run
+ * @param {object} req - Express request (may be empty `{}` from scheduler)
+ */
 const runTask = async (md_id, req) => {
   const md = await MetaData.findOne({
     id: md_id,
@@ -65,6 +37,7 @@ const runTask = async (md_id, req) => {
         { skill_type: "Generate Page", yoloMode: true },
         { skill_type: "Database design", yoloMode: true },
         { skill_type: "Generate Workflow", yoloMode: true },
+        { skill_type: "Generate trigger", yoloMode: true },
         { skill_type: "Generate View", yoloMode: true },
         { skill_type: "Install Plugin", yoloMode: true },
         { skill_type: "AppConstructor Context" },
@@ -85,14 +58,16 @@ Important: Some fields are non-stored (virtual) calculated fields — they have 
 
 Your task now is:
 ${md.body.description}`;
+  const safeReq = req?.__
+    ? req
+    : { ...req, __: (s) => s, user: req?.user };
 
   await md.update({ body: { ...md.body, status: "Running" } });
   const actionres = await agent_action.runWithoutRow({
     row: { prompt },
-    req,
-    user: req?.user,
+    req: safeReq,
+    user: safeReq.user,
   });
-  //console.log("actionres", actionres);
   const run_id = actionres.json.run_id;
   const run = await WorkflowRun.findOne({ id: run_id });
   await agent_action.runWithoutRow({
@@ -100,18 +75,18 @@ ${md.body.description}`;
       prompt:
         "Write a description of what you did, for the purposes of a progress report. Write 1-4 sentences. Do not use any tools or write any code",
     },
-    req,
+    req: safeReq,
     run,
-    user: req?.user,
+    user: safeReq.user,
   });
   const lastInteraction =
     run.context.interactions[run.context.interactions.length - 1];
   const lastText =
     typeof lastInteraction.content === "string"
       ? lastInteraction.content
-      : lastInteraction.content.text
+        : lastInteraction.content.text
         ? lastInteraction.content.text
-        : Array.isArray(lastInteraction.content)
+          : Array.isArray(lastInteraction.content)
           ? lastInteraction.content[0].text
           : lastInteraction.content;
   await MetaData.create({
@@ -121,8 +96,47 @@ ${md.body.description}`;
     user_id: req?.user?.id,
   });
 
-  //console.log("run", run);
   await md.update({ body: { ...md.body, status: "Done", run_id } });
+};
+
+/**
+ * Run the next startable task
+ * @param {boolean} [once=false] - true: run one task and stop, false: iterate all tasks
+ */
+const runNextTask = async (once = false) => {
+  if (!once) {
+    const settings = await MetaData.findOne({
+      type: "CopilotConstructMgr",
+      name: "settings",
+    });
+    if (!settings?.body?.running) return;
+  }
+  const tasks = await MetaData.find(
+    {
+      type: "CopilotConstructMgr",
+      name: "task",
+    },
+    { orderBy: "id" }
+  );
+  if (tasks.some((t) => t.body.status === "Running")) return;
+  const todos = tasks.filter(
+    (t) => !t.body.status || t.body.status === "To do"
+  );
+  const done = tasks.filter((t) => t.body.status === "Done");
+  const done_names = new Set(done.map((t) => t.body.name));
+
+  const startable = todos.filter((t) =>
+    t.body.depends_on.every((nm) => done_names.has(nm))
+  );
+
+  if (startable[0]) {
+    console.log("running task", startable[0]);
+    const taskUser = startable[0].user_id
+      ? await User.findOne({ id: startable[0].user_id })
+      : null;
+    await runTask(startable[0].id, { user: taskUser, __: (s) => s });
+    if (!once) await runNextTask();
+  }
 };
 
 module.exports = { runTask, runNextTask };

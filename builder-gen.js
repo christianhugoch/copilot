@@ -6,8 +6,12 @@ const { edit_build_in_actions } = require("@saltcorn/data/viewable_fields");
 const { buildBuilderSchema } = require("./builder-schema");
 const { getLlmConfigurationSafe, canUseResponseFormat } = require("./common");
 const { build_schema_data } = require("@saltcorn/data/plugin-helper");
-const { RelationsFinder } = require("@saltcorn/common-code");
-const { RelationType } = require("@saltcorn/common-code");
+const {
+  GET_RELATION_PATHS_FUNCTION,
+  getRelationPaths,
+  getRelationPathsForPairs,
+  pickBestRelation,
+} = require("./relation-paths");
 
 const ACTION_SIZES = ["btn-sm", "btn-lg"];
 
@@ -40,7 +44,9 @@ Alternatively wrap groups of fields in a card with a descriptive title.`;
 const EDIT_ACTIONS = `\
 Use edit fieldviews, group related inputs, and finish with a row of actions: \
 a Save button (action_name "Save", style "btn btn-primary") and \
-a Cancel button (action_name "GoBack", style "btn btn-outline-secondary").`;
+a Cancel button (action_name "GoBack", style "btn btn-outline-secondary"). \
+To add a trigger button, add an extra action segment with action_name set to the trigger's name \
+exactly as it appears in the available actions list (ctx.actions).`;
 
 // ── Show-mode guidance blocks ─────────────────────────────────────────────────
 
@@ -779,18 +785,13 @@ const normalizeSegment = (segment, ctx) => {
       let relation = clone.relation;
       if (!relation && ctx.table && ctx.schemaData) {
         try {
-          const finder = new RelationsFinder(
-            ctx.schemaData.tables,
-            ctx.schemaData.views,
-            6
-          );
-          const relations = finder.findRelations(
+          const relations = getRelationPaths(
             ctx.table.name,
             resolvedView,
-            []
+            ctx.schemaData
           );
           if (relations.length > 0) {
-            const picked = pickRelation(relations);
+            const picked = pickBestRelation(relations);
             if (picked) relation = picked.relationString;
           }
         } catch (e) {
@@ -1209,21 +1210,6 @@ const buildBracketObject = (node) => {
   return obj;
 };
 
-const pickRelation = (relations) => {
-  let own = null,
-    parent = null,
-    child = null;
-  for (const r of relations) {
-    if (r.type === RelationType.OWN) own = r;
-    else if (r.type === RelationType.PARENT_SHOW) parent = r;
-    else if (
-      r.type === RelationType.CHILD_LIST ||
-      r.type === RelationType.ONE_TO_ONE_SHOW
-    )
-      child = r;
-  }
-  return own || parent || child || relations[0];
-};
 
 const buildContext = async (mode, tableName) => {
   const normalizedMode = (mode || "show").toLowerCase();
@@ -1397,6 +1383,57 @@ const buildErrorLayout = ({ message, mode, table }) => {
   };
 };
 
+const GET_RELATION_PATHS_TOOL = { type: "function", function: GET_RELATION_PATHS_FUNCTION };
+
+/**
+ * Run the LLM giving it one opportunity to call get_relation_paths before
+ * producing the final layout JSON. Returns the final text response.
+ */
+const runWithRelationTools = async (llm, mainPrompt, opts) => {
+  const llm_add_message = getState().functions.llm_add_message;
+
+  // Local chat copy with the main prompt pre-loaded so all iterations see it.
+  const runChat = Array.isArray(opts.chat) ? [...opts.chat] : [];
+  runChat.push({ role: "user", content: mainPrompt });
+
+  // Drop response_format during tool phase; repair chain handles JSON after.
+  const toolOpts = { ...opts, tools: [GET_RELATION_PATHS_TOOL] };
+  delete toolOpts.response_format;
+  delete toolOpts.chat;
+
+  // Call 1: model either returns JSON directly or calls get_relation_paths.
+  const raw = await llm.run(null, { ...toolOpts, chat: runChat });
+  if (!raw?.hasToolCalls) {
+    return typeof raw === "string" ? raw : raw?.content ?? "";
+  }
+
+  // Append the assistant message so call 2 has full context.
+  if (raw.ai_sdk && Array.isArray(raw.messages)) {
+    raw.messages.filter((m) => m.role === "assistant").forEach((m) => runChat.push(m));
+  } else if (raw.tool_calls) {
+    runChat.push({ role: "assistant", content: raw.content || null, tool_calls: raw.tool_calls });
+  }
+
+  // Resolve the tool call(s) and push results.
+  const schemaData = await build_schema_data();
+  for (const tc of raw.getToolCalls()) {
+    let resultText;
+    if (tc.tool_name === "get_relation_paths") {
+      const sections = getRelationPathsForPairs(tc.input.pairs || [], schemaData);
+      resultText =
+        sections.join("\n\n") +
+        `\n\nSet the "relation" property to one of the strings listed above for each view_link.`;
+    } else {
+      resultText = `Unknown tool: ${tc.tool_name}`;
+    }
+    await llm_add_message.run("tool_response", resultText, { chat: runChat, tool_call: tc });
+  }
+
+  // Call 2: model has relation paths, now generates the layout JSON.
+  const final = await llm.run(null, { ...opts, chat: runChat });
+  return typeof final === "string" ? final : final?.content ?? "";
+};
+
 module.exports = {
   normalizeLayoutCandidate,
   run: async (prompt, mode, table, existing_layout, chat) => {
@@ -1467,7 +1504,7 @@ module.exports = {
       if (!schema || !schema.schema) {
         throw new Error("Builder schema unavailable");
       }
-      rawResponse = await llm.run(llmPrompt, options);
+      rawResponse = await runWithRelationTools(llm, llmPrompt, options);
       payload = parseJsonPayload(rawResponse);
       const candidate = payload.layout ?? payload;
       const result = normalizeLayoutCandidate(candidate, ctx);

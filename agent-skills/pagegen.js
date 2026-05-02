@@ -57,7 +57,7 @@ class GeneratePageSkill {
           `${name}.html`,
           "text/html",
           html,
-          user.id,
+          user?.id,
           100,
         );
 
