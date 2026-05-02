@@ -55,4 +55,32 @@ const existing_tables_list = (tables) => {
 ${tableLines.join("\n\n")}`;
 };
 
-module.exports = { saltcorn_description, existing_tables_list };
+const existing_entities_list = ({ views, triggers, pages }) => {
+  const sections = [];
+  if (views.length)
+    sections.push(
+      `The following views are already implemented — do NOT plan tasks to create them:\n` +
+        views
+          .map((v) => `- ${v.name} (${v.viewtemplate}${v.table ? ` on ${v.table.name}` : ""})`)
+          .join("\n")
+    );
+  if (triggers.length)
+    sections.push(
+      `The following triggers are already implemented — do NOT plan tasks to create them:\n` +
+        triggers
+          .map((t) => `- ${t.name} (${t.action}${t.when_trigger ? `, ${t.when_trigger}` : ""})`)
+          .join("\n")
+    );
+  if (pages.length)
+    sections.push(
+      `The following pages are already implemented — do NOT plan tasks to create them:\n` +
+        pages.map((p) => `- ${p.name}`).join("\n")
+    );
+  return sections.join("\n\n");
+};
+
+module.exports = {
+  saltcorn_description,
+  existing_tables_list,
+  existing_entities_list,
+};

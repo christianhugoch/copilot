@@ -4,6 +4,7 @@ const Form = require("@saltcorn/data/models/form");
 const MetaData = require("@saltcorn/data/models/metadata");
 const View = require("@saltcorn/data/models/view");
 const Trigger = require("@saltcorn/data/models/trigger");
+const Page = require("@saltcorn/data/models/page");
 const { findType } = require("@saltcorn/data/models/discovery");
 const { save_menu_items } = require("@saltcorn/data/models/config");
 const db = require("@saltcorn/data/db");
@@ -38,7 +39,11 @@ const renderLayout = require("@saltcorn/markup/layout");
 const { viewname, tool_choice } = require("./common");
 const { runTask, runNextTask } = require("./run_task");
 const { task_tool } = require("./tools");
-const { saltcorn_description, existing_tables_list } = require("./prompts");
+const {
+  saltcorn_description,
+  existing_tables_list,
+  existing_entities_list,
+} = require("./prompts");
 
 const makeTaskList = async (req) => {
   const rs = await MetaData.find(
@@ -223,6 +228,10 @@ const gen_tasks = async (table_id, viewname, config, body, { req, res }) => {
   if (!schema) throw new Error("No schema found");
   if (!schema.body.implemented) throw new Error("Schema not implemented");
   const tables = await Table.find({});
+  const views = await View.find({});
+  const triggers = await Trigger.find({});
+  const pages = await Page.find({});
+  const entitiesSection = existing_entities_list({ views, triggers, pages });
 
   const answer = await getState().functions.llm_generate.run(
     `Generate a plan for building this application:
@@ -243,9 +252,11 @@ The database has already been built. The following tables are now present in the
 
 ${existing_tables_list(tables)}
 
-The plan should outline the continued development of the application on top of this database. 
-Your plan can add additional tables if needed or adjust the table fields, but normally the tables 
-should be designed optimally for this application. 
+${
+  entitiesSection ? entitiesSection + "\n" : ""
+}The plan should outline the continued development of the application on top of this database.
+Your plan can add additional tables if needed or adjust the table fields, but normally the tables
+should be designed optimally for this application.
 
 The plan should focus on building views, triggers (including workflows) and pages.
 
@@ -323,8 +334,7 @@ const run_task = async (table_id, viewname, config, body, { req, res }) => {
     runTask(body.id, { user: reqUser, __: req.__ }).catch((e) =>
       console.error("run_task error", e)
     );
-  else
-    runNextTask(true).catch((e) => console.error("run_task error", e));
+  else runNextTask(true).catch((e) => console.error("run_task error", e));
   return { json: { reload_page: true } };
 };
 
