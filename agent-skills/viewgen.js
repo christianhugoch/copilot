@@ -160,14 +160,18 @@ class GenerateViewSkill {
           return {
             error: `View "${name}" already exists. Use get_view_config and apply_view_config to update it.`,
           };
-        const normalizedRole = min_role || "public";
         const tableRow = table ? Table.findOne({ name: table }) : null;
+        const roleName = typeof min_role === "number" ? null : (min_role || "public");
+        const resolvedRole =
+          typeof min_role === "number"
+            ? min_role
+            : ((getState().roles || []).find((r) => r.role === roleName) || { id: 100 }).id;
         await View.create({
           name,
           viewtemplate: viewpattern,
           table_id: tableRow?.id,
           table: tableRow,
-          min_role: { admin: 1, public: 100, user: 80 }[normalizedRole],
+          min_role: resolvedRole,
           configuration: wfctx,
         });
         const vt = getState().viewtemplates[viewpattern];
