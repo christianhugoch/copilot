@@ -40,7 +40,6 @@ const runTask = async (md_id, req) => {
         { skill_type: "Generate trigger", yoloMode: true },
         { skill_type: "Generate View", yoloMode: true },
         { skill_type: "Install Plugin", yoloMode: true },
-        { skill_type: "AppConstructor Context" },
       ],
     },
   });
@@ -55,6 +54,8 @@ Visual style: ${spec.body.visual_style}
 Important: The database schema is already fully implemented. Do NOT use generate_tables or modify any tables or fields — all tables and fields already exist.
 
 Important: Some fields are non-stored (virtual) calculated fields — they have no database column and are computed on-the-fly by Saltcorn. Never include such fields in modify_row, SQL UPDATE statements, or recalculate_stored_fields calls. Only fields that exist as actual database columns (regular fields and stored calculated fields) can be written. If a calculated field needs updating, it will refresh automatically when the fields it depends on change.
+
+Important: The "users" table is built-in. Passwords are platform-managed — never add a password field to a view. Signup uses a built-in form, not an Edit view.
 
 Your task now is:
 ${md.body.description}`;
