@@ -22,7 +22,7 @@ const { getState } = require("@saltcorn/data/db/state");
 const db = require("@saltcorn/data/db");
 const { viewname } = require("./common");
 const { task_tool } = require("./tools");
-const { PromptGenerator } = require("./prompt-generator");
+const { PromptGenerator } = require("./prompts/prompt-generator");
 
 const doCreateErrorFixTask = async (errorMd, userId) => {
   const currentMd = await MetaData.findOne({
