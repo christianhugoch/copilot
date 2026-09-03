@@ -109,7 +109,7 @@ class ChainHelper {
         {
           tools: [task_tool],
           ...tool_choice("plan_tasks"),
-          systemPrompt: generator.taskPlanSystemPrompt(taskType),
+          systemPrompt: await generator.taskPlanSystemPrompt(taskType),
         }
       );
       const toolCalls =

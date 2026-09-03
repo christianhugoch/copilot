@@ -170,7 +170,7 @@ const doCreateErrorFixTask = async (errorMd, userId) => {
     if (!generator.spec) return;
 
     const answer = await getState().functions.llm_generate.run(
-      generator.errorPrompt(errorText, entityConfigSection),
+      await generator.errorPrompt(errorText, entityConfigSection),
       {
         tools: [task_tool, cannot_fix_tool],
         systemPrompt:

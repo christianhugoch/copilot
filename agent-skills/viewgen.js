@@ -336,7 +336,10 @@ class GenerateViewSkill {
         if (builderMode) {
           // Lets a viewtemplate require specific layout content (e.g. List needs a
           // viewlink/delete segment) without hardcoding that knowledge in the constructor.
-          const layoutRule = vt.copilot_layout_rule;
+          const layoutRule =
+            typeof vt.copilot_layout_rule === "function"
+              ? await vt.copilot_layout_rule(tool_call.input)
+              : vt.copilot_layout_rule;
           wfctx.layout = await builderGen.run(
             layoutRule ? `${layoutRule}\n\n${layoutPrompt}` : layoutPrompt,
             builderMode,

@@ -138,7 +138,7 @@ module.exports = {
 
     // plan tasks for the new requirements
     const taskAnswer = await getState().functions.llm_generate.run(
-      generator.feedbackPrompt({
+      await generator.feedbackPrompt({
         title: use_title,
         description: use_description,
         urlSection,

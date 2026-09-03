@@ -68,7 +68,7 @@ const ALWAYS_ON_VIEWTEMPLATE_PLUGINS = ["base"];
 // Collects each registered viewtemplate's own planning guidance (ViewTemplate.copilot_planning_rule),
 // scoped to viewtemplates actually available to this project - same scoping as
 // installed_plugins_list, instead of hardcoding per-viewtemplate knowledge here.
-const viewtemplate_planning_rules = (installedNames = new Set()) => {
+const viewtemplate_planning_rules = async (installedNames = new Set()) => {
   const state = getState();
   const relevantNames = new Set();
   for (const pluginName of [...ALWAYS_ON_VIEWTEMPLATE_PLUGINS, ...installedNames]) {
@@ -83,10 +83,19 @@ const viewtemplate_planning_rules = (installedNames = new Set()) => {
       : mod.viewtemplates || [];
     for (const vt of raw || []) relevantNames.add(vt.name);
   }
-  return Object.values(state.viewtemplates || {})
-    .filter((vt) => vt.copilot_planning_rule && relevantNames.has(vt.name))
-    .map((vt) => `Important ${vt.name} view planning rule:\n${vt.copilot_planning_rule}`)
-    .join("\n\n");
+  const relevantVts = Object.values(state.viewtemplates || {}).filter(
+    (vt) => vt.copilot_planning_rule && relevantNames.has(vt.name)
+  );
+  const lines = await Promise.all(
+    relevantVts.map(async (vt) => {
+      const rule =
+        typeof vt.copilot_planning_rule === "function"
+          ? await vt.copilot_planning_rule()
+          : vt.copilot_planning_rule;
+      return `Important ${vt.name} view planning rule:\n${rule}`;
+    })
+  );
+  return lines.join("\n\n");
 };
 
 const joinRules = (rules, topics) => {
@@ -496,7 +505,7 @@ class PromptGenerator {
    * All behavioral rules for the plan_tasks call - the context lives in taskPlanPrompt().
    * @param {"plugin"|"data_model"|"feature"} taskType
    */
-  taskPlanSystemPrompt(taskType) {
+  async taskPlanSystemPrompt(taskType) {
     const parts = [
       `You are a project manager planning implementation tasks for a Saltcorn ` +
         `application. Each task is one complete deliverable — a view, a page, a ` +
@@ -519,7 +528,7 @@ class PromptGenerator {
       case "feature": {
         parts.push(feature_type_instruction.join("\n"));
         parts.push(task_planning_rules.join("\n\n"));
-        const vtRules = viewtemplate_planning_rules(this.installedNames);
+        const vtRules = await viewtemplate_planning_rules(this.installedNames);
         if (vtRules) parts.push(vtRules);
         break;
       }
@@ -587,7 +596,7 @@ class PromptGenerator {
    * @param {string} errorText       JSON-stringified error object.
    * @param {string} [entityConfigSection]  Pre-built config excerpt for the affected entity.
    */
-  errorPrompt(errorText, entityConfigSection = "") {
+  async errorPrompt(errorText, entityConfigSection = "") {
     const parts = [
       `Fix a bug in the following Saltcorn application.\n\n${this.spec?.body?.specification}`,
     ];
@@ -614,7 +623,7 @@ class PromptGenerator {
     );
     if (availableSection) parts.push(availableSection);
     parts.push(task_planning_rules.join("\n\n"));
-    const vtRulesErr = viewtemplate_planning_rules(this.installedNames);
+    const vtRulesErr = await viewtemplate_planning_rules(this.installedNames);
     if (vtRulesErr) parts.push(vtRulesErr);
     parts.push(
       `The following error occurred in the application:\n\`\`\`\n${errorText}\n\`\`\``
@@ -687,7 +696,7 @@ class PromptGenerator {
    * @param {{ title: string, description: string, urlSection?: string,
    *           feedbackResearchSection?: string, newRequirements?: object[] }} opts
    */
-  feedbackPrompt({
+  async feedbackPrompt({
     title,
     description,
     urlSection = "",
@@ -729,7 +738,7 @@ class PromptGenerator {
     );
     if (availableSection) parts.push(availableSection);
     parts.push(task_planning_rules.join("\n\n"));
-    const vtRulesFeedback = viewtemplate_planning_rules(this.installedNames);
+    const vtRulesFeedback = await viewtemplate_planning_rules(this.installedNames);
     if (vtRulesFeedback) parts.push(vtRulesFeedback);
     parts.push(task_planning_closing.join("\n\n"));
     parts.push(
