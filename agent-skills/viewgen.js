@@ -8,8 +8,6 @@ const {
 const { getState } = require("@saltcorn/data/db/state");
 const {
   div,
-  pre,
-  code,
   a,
   text,
   escape,
@@ -17,6 +15,10 @@ const {
   text_attr,
 } = require("@saltcorn/markup/tags");
 const builderGen = require("../builder-gen");
+const { SHOW_LAYOUT_GUIDANCE } = require("../view-layout-guidance");
+const {
+  renderGeneratedViewConfiguration,
+} = require("./generated-view-preview");
 const {
   GET_RELATION_PATHS_FUNCTION,
   getRelationPathsForPairs,
@@ -162,7 +164,8 @@ class GenerateViewSkill {
       `only the name or a partial object — the configuration field is ` +
       `mandatory and must be the full merged result from step (3). Calling ` +
       `apply_view_config without a complete configuration is an error.\n\n` +
-      `**Generating a new view that contains view_links or embedded views:**\n` +
+      SHOW_LAYOUT_GUIDANCE +
+      `\n\n**Generating a new view that contains view_links or embedded views:**\n` +
       `If the task or prompt mentions a viewlink, a link to another view, or ` +
       `a button that opens another view from a list row, that view_link ` +
       `column is REQUIRED — do not omit it. You MUST call get_relation_paths ` +
@@ -615,7 +618,7 @@ class GenerateViewSkill {
         return {
           stop: true,
           add_response:
-            pre(JSON.stringify(wfctx, null, 2)) +
+            renderGeneratedViewConfiguration(wfctx) +
             div(
               { style: { maxHeight: 800, maxWidth: 500, overflow: "scroll" } },
               runres
@@ -668,7 +671,8 @@ class GenerateViewSkill {
           "Save an updated configuration to an existing view. " +
           "STRICT PRECONDITION: you must have already called get_view_config AND written out the complete merged configuration JSON before calling this tool. " +
           "Do NOT call this tool as a placeholder or before the configuration is fully constructed. " +
-          "Calling this tool without a complete configuration object is always wrong and will fail.",
+          "Calling this tool without a complete configuration object is always wrong and will fail. " +
+          "For Show views, use blank segments for literal labels, field/Field pairs for direct fields, and join_field/JoinField pairs for related fields.",
         parameters: {
           type: "object",
           required: ["name", "configuration"],
@@ -682,7 +686,8 @@ class GenerateViewSkill {
               description:
                 "REQUIRED. The complete updated configuration object — every key from the existing config preserved, with only your changes merged in. " +
                 "You MUST have the full object written out before calling this tool. " +
-                "Passing null, an empty object, or a partial object (e.g. only the name) is always wrong and will return an error.",
+                "Passing null, an empty object, or a partial object (e.g. only the name) is always wrong and will return an error. " +
+                "For Show views, keep layout segments and configuration.columns synchronized: field with Field, and join_field with JoinField.",
             },
           },
         },
@@ -718,7 +723,7 @@ class GenerateViewSkill {
         }
         return {
           stop: true,
-          add_response: pre(JSON.stringify(cfg, null, 2)),
+          add_response: renderGeneratedViewConfiguration(cfg),
           add_user_action: {
             name: "build_copilot_view_update",
             type: "button",
