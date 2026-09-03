@@ -515,6 +515,7 @@ class ChainHelper {
       });
       if (!chain || chain.body.stopped) {
         if (chain) await chain.delete();
+        if (chain?.body.phaseIdx != null) emitChainUpdate(chain.body.phaseIdx);
         emitOverviewUpdate(pt);
         return;
       }
@@ -546,6 +547,7 @@ class ChainHelper {
         // The phase failed - stop "Run all phases" here too.
         const chainOnAbort = await MetaData.findOne({ id: chain.id });
         if (chainOnAbort) await chainOnAbort.delete();
+        emitChainUpdate(idx);
         emitOverviewUpdate(pt);
         return;
       }
@@ -553,6 +555,7 @@ class ChainHelper {
       const chainAfter = await MetaData.findOne({ id: chain.id });
       if (!chainAfter || chainAfter.body.stopped) {
         if (chainAfter) await chainAfter.delete();
+        emitChainUpdate(idx);
         emitOverviewUpdate(pt);
         return;
       }

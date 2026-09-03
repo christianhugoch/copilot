@@ -353,6 +353,7 @@ function _runAllSetStopping(idx) {
 // Both the card-refresh and the status-check below share the same token per
 // _refreshChainUI call, since a stale response from either can cause it.
 const _chainStatusSeq = {};
+let _overviewStatusSeq = 0;
 
 // Patches just one phase card in place (used when the phases list, not a
 // phase's detail view, is what's currently showing).
@@ -391,7 +392,9 @@ function _refreshChainUI(idx) {
 function _refreshOverviewStatus() {
   const statusEl = document.getElementById('phases-overview-status');
   if (!statusEl) return; // navigated away from the overview
+  const seq = ++_overviewStatusSeq;
   view_post(_phasesVn, 'phases_overview_status', {}, (r) => {
+    if (seq !== _overviewStatusSeq) return; // superseded by a newer request
     const runBtn = document.getElementById('phases-run-all-btn');
     const stopBtn = document.getElementById('phases-stop-all-btn');
     if (r && r.active) {
